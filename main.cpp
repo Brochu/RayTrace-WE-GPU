@@ -28,7 +28,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
     // Initialize demo
     DXRayTrace rt_app;
     if (!rt_app.Initialize(g_hWnd, g_hInst)) return -1;
-	rt_app.TraceTexture();
 
     // Main message loop
     MSG msg = { 0 };
