@@ -26,9 +26,14 @@ PS_Input VS_Main(VS_Input vertex)
     return vsOut;
 }
 
-float nrand(float2 uv)
+float rand(float2 uv)
 {
     return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+float nrand(float2 uv)
+{
+	return (2.0 * rand(uv)) - 1;
 }
 
 float3 random_in_unit_sphere(float2 uv)
@@ -39,6 +44,9 @@ float3 random_in_unit_sphere(float2 uv)
         if (length(p) * length(p) >= 1) continue;
         return p;
     }
+	
+	// We should not be here
+	return float3(0,0,0);
 }
 
 float hit_sphere(float3 center, float radius, float3 origin, float3 direction)
@@ -67,22 +75,39 @@ float3 find_normal(float3 center, float radius, float3 origin, float3 direction,
 	return N;
 }
 
-float4 color(float3 origin, float3 direction)
+float3 find_target(float3 P, float3 N, float2 uv)
 {
-	// 1st sphere
-	float t = hit_sphere(float3(0, 0, -1), 0.5, origin, direction);
-	if (t > 0.0)
+	return float3(P + N + random_in_unit_sphere(uv));
+}
+
+float4 color(float3 origin, float3 direction, float2 uv, float depth)
+{
+	// Make sure we don't explode the callstack
+	if (depth <= 0)
 	{
-		float3 N = find_normal(float3(0, 0, -1), 0.5, origin, direction, t);
-		return 0.5 * float4(N.x+1, N.y+1, N.z+1, 1.0);
+		return float4(0, 0, 0, 1);
 	}
 
-	// 2nd sphere
-	t = hit_sphere(float3(0, -100.5, -1), 100.0, origin, direction);
-	if (t > 0.0)
+	const int SPHERE_COUNT = 2;
+
+	// Sheres gen, please move this to constant buffer
+	float4 spheres[SPHERE_COUNT];
+	spheres[0] = float4(0, 0, -1, 0.5);
+	spheres[1] = float4(0, -100.5, -1, 100.0);
+
+	float t = 0.0;
+	for (int i = 0; i < SPHERE_COUNT; ++i)
 	{
-		float3 N = find_normal(float3(0, -100.5, -1), 100.0, origin, direction, t);
-		return 0.5 * float4(N.x+1, N.y+1, N.z+1, 1.0);
+		t = hit_sphere(spheres[i].xyz, spheres[i].w, origin, direction);
+		if (t > 0.0)
+		{
+			float3 N = find_normal(spheres[i].xyz, spheres[i].w, origin, direction, t);
+			float3 P = (t * direction) + origin;
+			float3 target = find_target(P, N, uv);
+
+			return 0.5 * color(P, (target - P), uv, depth-1);
+			//return 0.5 * float4(N.x + 1, N.y + 1, N.z + 1, 1.0);
+		}
 	}
 
 	float3 unit_dir = normalize(direction);
@@ -116,5 +141,6 @@ float4 PS_Main(PS_Input frag) : SV_TARGET
 	float3 orig = float3(0,0,0);
 	float3 dir = float3(lower_left_corner + u*horizontal + v*vertical - origin);
 
-	return color(orig, dir);
+	const int MAX_DEPTH = 50;
+	return color(orig, dir, frag.tex0, MAX_DEPTH);
 }
