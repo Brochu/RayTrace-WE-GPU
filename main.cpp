@@ -29,6 +29,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
     DXRayTrace rt_app;
     if (!rt_app.Initialize(g_hWnd, g_hInst)) return -1;
 
+	// Update and render
+	rt_app.Update();
+	rt_app.Render();
+
     // Main message loop
     MSG msg = { 0 };
     while (msg.message != WM_QUIT)
@@ -40,8 +44,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdL
         }
 
         // Update and render
-        rt_app.Update();
-        rt_app.Render();
+        //rt_app.Update();
+        //rt_app.Render();
     }
 
     // Terminate rt_app
@@ -76,7 +80,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 bool CreateMainWnd(int nCmdShow)
 {
     // Calculate main window size
-    RECT rc = { 0, 0, 800, 600 };
+    RECT rc = { 0, 0, 640, 480 };
     ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
     // Create the main window

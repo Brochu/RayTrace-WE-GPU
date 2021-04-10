@@ -206,6 +206,7 @@ bool CDx11Base::CompileShader(LPCSTR szFilePath, LPCSTR szFunc, LPCSTR szShaderM
     if (FAILED(hr)) {
         if (errBuffer != NULL) {
             ::OutputDebugStringA((char*)errBuffer->GetBufferPointer());
+			::MessageBox(hWnd, (char*)errBuffer->GetBufferPointer(), "ERROR", MB_OK);
             errBuffer->Release();
         }
         return false;

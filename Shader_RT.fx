@@ -1,6 +1,13 @@
-Texture2D colorMap : register(t0);
-SamplerState colorSampler : register(s0);
+cbuffer CamSettings : register(b0)
+{
+	float4 img_vp;
 
+    float4 origin;
+    float4 horizontal;
+    float4 vertical;
+
+    float4 lower_left_corner;
+}
 
 struct VS_Input
 {
@@ -15,6 +22,38 @@ struct PS_Input
     float2 tex0 : TEXCOORD0;
 };
 
+struct Ray
+{
+    float3 orig;
+    float3 dir;
+};
+
+struct Material
+{
+    bool is_metal;
+    float4 albedo; // color
+    float fuzz; // Fuzzy reflections
+};
+
+struct Hit
+{
+    float3 p;
+    float3 normal;
+    float t;
+    bool front_face;
+
+    Material mat;
+};
+
+struct World
+{
+    int count;
+    float4 world[64];
+
+    Material world_mat[64]; // 1:1 rel between world && world_mat
+};
+
+#define PI 3.1415926535
 
 PS_Input VS_Main(VS_Input vertex)
 {
@@ -26,121 +65,258 @@ PS_Input VS_Main(VS_Input vertex)
     return vsOut;
 }
 
-float rand(float2 uv)
+// I LOST THE RUN TO RNG DUDE??!
+float rand2d(inout float2 randState)
 {
-    return frac(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+    randState.x = frac(sin(dot(randState.xy, float2(12.9898, 78.233))) * 43758.5453);
+    randState.y = frac(sin(dot(randState.xy, float2(12.9898, 78.233))) * 43758.5453);
+
+    return randState.x;
 }
 
-float nrand(float2 uv)
+float rand2d(inout float2 randState, float min, float max)
 {
-	return (2.0 * rand(uv)) - 1;
+    return min + (max - min) * rand2d(randState);
 }
 
-float3 random_in_unit_sphere(float2 uv)
+float3 random_in_unit_sphere(float2 randState)
 {
-    while (true)
-	{
-        float3 p = float3(nrand(uv), nrand(uv), nrand(uv));
-        if (length(p) * length(p) >= 1) continue;
-        return p;
+    float phi = 2.0 * PI * rand2d(randState);
+    float cosTheta = 2.0 * rand2d(randState) - 1.0;
+    float u = rand2d(randState);
+
+    float theta = acos(cosTheta);
+    float r = pow(u, 1.0 / 3.0);
+
+    float x = r * sin(theta) * cos(phi);
+    float y = r * sin(theta) * sin(phi);
+    float z = r * cos(theta);
+
+    return float3(x, y, z);
+}
+
+float3 random_unit_vector(float2 randState)
+{
+    return normalize(random_in_unit_sphere(randState));
+}
+
+float3 random_in_hemisphere(float2 randState, float3 normal)
+{
+    float3 in_unit_sphere = random_in_unit_sphere(randState);
+    if (dot(in_unit_sphere, normal) > 0.0)
+    {
+        return in_unit_sphere;
     }
-	
-	// We should not be here
-	return float3(0,0,0);
+    else
+    {
+        return -in_unit_sphere;
+    }
 }
 
-float hit_sphere(float3 center, float radius, float3 origin, float3 direction)
-{
-    float3 oc = origin - center;
-    float a = dot(direction, direction);
-    float half_b = dot(oc, direction);
-    float c = dot(oc, oc) - radius*radius;
-
-    float discriminant = half_b*half_b - a*c;
-
-	if (discriminant < 0)
-		return -1.0;
-	else
-		return (-half_b - sqrt(discriminant)) / a;
+float degrees_to_radians(float degrees) {
+    return degrees * PI / 180.0;
 }
 
-float3 find_normal(float3 center, float radius, float3 origin, float3 direction, float t)
+float3 ray_at(Ray r, float t)
 {
-	float3 N = (t*direction + origin - center) / radius;
-	if (dot(direction, N) > 0)
-	{
-		N = -N;
-	}
-
-	return N;
+    return r.orig + t * r.dir;
 }
 
-float3 find_target(float3 P, float3 N, float2 uv)
+bool vec_near_zero(float3 vec)
 {
-	return float3(P + N + random_in_unit_sphere(uv));
+    const float s = 1e-8;
+    return (abs(vec.x) < s) && (abs(vec.y) < s) && (abs(vec.z) < s);
 }
 
-float4 color(float3 origin, float3 direction, float2 uv, float depth)
+float3 reflect(float3 v, float3 normal)
 {
-	// Make sure we don't explode the callstack
-	if (depth <= 0)
-	{
-		return float4(0, 0, 0, 1);
-	}
+    return v - 2 * dot(v, normal) * normal;
+}
 
-	const int SPHERE_COUNT = 2;
+void set_face_normal(Ray r, float3 outward_normal, inout Hit h)
+{
+    h.front_face = dot(r.dir, outward_normal) < 0;
 
-	// Sheres gen, please move this to constant buffer
-	float4 spheres[SPHERE_COUNT];
-	spheres[0] = float4(0, 0, -1, 0.5);
-	spheres[1] = float4(0, -100.5, -1, 100.0);
+    if (h.front_face)
+    {
+        h.normal = outward_normal;
+    }
+    else
+    {
+        h.normal = -outward_normal;
+    }
+}
 
-	float t = 0.0;
-	for (int i = 0; i < SPHERE_COUNT; ++i)
-	{
-		t = hit_sphere(spheres[i].xyz, spheres[i].w, origin, direction);
-		if (t > 0.0)
-		{
-			float3 N = find_normal(spheres[i].xyz, spheres[i].w, origin, direction, t);
-			float3 P = (t * direction) + origin;
-			float3 target = find_target(P, N, uv);
+bool lambert(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, out Ray scattered)
+{
+    float3 scatter_dir = h.normal + random_in_hemisphere(randState, h.normal);
+    if (vec_near_zero(scatter_dir))
+    {
+        scatter_dir = h.normal;
+    }
 
-			return 0.5 * color(P, (target - P), uv, depth-1);
-			//return 0.5 * float4(N.x + 1, N.y + 1, N.z + 1, 1.0);
-		}
-	}
+    Ray s = { h.p, scatter_dir };
+    scattered = s;
+    attenuation = m.albedo;
 
-	float3 unit_dir = normalize(direction);
+    return true;
+}
 
-	t = 0.5 * (unit_dir.y + 1.0);
-	float3 lerped = lerp(float3(1.0, 1.0, 1.0), float3(0.5, 0.7, 1.0), t);
+bool metal(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, out Ray scattered)
+{
+    float3 reflected = reflect(normalize(r.dir), h.normal);
 
-	return float4(lerped, 1.0);
+    Ray s = { h.p, reflected + saturate(m.fuzz) * random_in_hemisphere(randState, h.normal) };
+    scattered = s;
+    attenuation = m.albedo;
+
+    return true;
+}
+
+bool mat_scatter(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, out Ray scattered)
+{
+    if (m.is_metal)
+    {
+        return metal(m, r, h, randState, attenuation, scattered);
+    }
+    else
+    {
+        return lambert(m, r, h, randState, attenuation, scattered);
+    }
+}
+
+bool hit_sphere(float4 sphere, Material m, Ray r, float t_min, float t_max, out Hit h)
+{
+    float3 oc = r.orig - sphere.xyz;
+    float a = length(r.dir) * length(r.dir);
+    float half_b = dot(oc, r.dir);
+    float c = length(oc) * length(oc) - (sphere.w * sphere.w);
+
+    float d = half_b*half_b - a*c;
+
+    if (d < 0) return false;
+    float sqrtd = sqrt(d);
+
+    // Find nearest root in range
+    float root = (-half_b - sqrtd) / a;
+    if (root < t_min || t_max < root)
+    {
+        root = (-half_b + sqrtd) / a;
+        if (root < t_min || t_max < root)
+        {
+            return false;
+        }
+    }
+
+    h.t = root;
+    h.p = ray_at(r, h.t);
+    h.mat = m;
+    float3 outward_normal = (h.p - sphere.xyz) / sphere.w;
+    set_face_normal(r, outward_normal, h);
+
+    return true;
+}
+
+bool hit_world(World w, Ray r, float t_min, float t_max, out Hit h)
+{
+    Hit temp_hit;
+    bool hit_anything = false;
+    float closest = t_max;
+
+    for (int i = 0; i < w.count; ++i)
+    {
+        if (hit_sphere(w.world[i], w.world_mat[i], r, t_min, closest, temp_hit))
+        {
+            hit_anything = true;
+            closest = temp_hit.t;
+            h = temp_hit;
+        }
+    }
+
+    return hit_anything;
+}
+
+float4 color(Ray r, World w, float2 randState)
+{
+    Ray cur_ray = r;
+    float4 cur_atten = float4(1.0, 1.0, 1.0, 1.0);
+    for (int i = 0; i < 50; ++i)
+    {
+        Hit h;
+        if (hit_world(w, cur_ray, 0.001, 1.#INF, h))
+        {
+            Ray scattered;
+            float4 attenuation;
+
+            if (mat_scatter(h.mat, cur_ray, h, randState, attenuation, scattered))
+            {
+                cur_atten *= attenuation;
+                cur_ray = scattered;
+            }
+        }
+        else
+        {
+            float3 unit_dir = normalize(cur_ray.dir);
+            float t = 0.5 * (unit_dir.y + 1.0);
+            float3 color = (1.0 - t) * float3(1, 1, 1) + t * float3(0.5, 0.7, 1.0);
+
+            return float4((cur_atten.xyz * color), 1.0);
+        }
+    }
+
+    return float4(0.0, 0.0, 0.0, 1.0);
 }
 
 float4 PS_Main(PS_Input frag) : SV_TARGET
 {
-	float u = frag.tex0.x;
-	float v = frag.tex0.y;
+    // World
+    World w;
+    w.count = 4;
 
-	// Image
-    float aspect_ratio = 4.0 / 3.0;
-    int image_width = 640;
-    int image_height = (int)(image_width / aspect_ratio);
+    w.world[0] = float4(0.0, -100.5, -1.0, 100.0);
+    Material m0 = { false, float4(0.8, 0.8, 0.0, 1.0), -1.0 };
+    w.world_mat[0] = m0;
 
-    // Camera
-    float viewport_height = 2.0;
-    float viewport_width = aspect_ratio * viewport_height;
-    float focal_length = 1.0;
+	w.world[1] = float4(0.0, 0.0, -1.0, 0.5);
+    Material m1 = { false, float4(0.7, 0.3, 0.3, 1.0), -1.0 };
+    w.world_mat[1] = m1;
 
-    float3 origin = float3(0, 0, 0);
-    float3 horizontal = float3(viewport_width, 0, 0);
-    float3 vertical = float3(0, viewport_height, 0);
-    float3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - float3(0, 0, focal_length);
+	w.world[2] = float4(-1.0, 0.0, -1.0, 0.5);
+    Material m2 = { true, float4(0.8, 0.8, 0.8, 1.0), 0.3 };
+    w.world_mat[2] = m2;
 
-	float3 orig = float3(0,0,0);
-	float3 dir = float3(lower_left_corner + u*horizontal + v*vertical - origin);
+	w.world[3] = float4(1.0, 0.0, -1.0, 0.5);
+    Material m3 = { true, float4(0.8, 0.6, 0.2, 1.0), 1.0 };
+    w.world_mat[3] = m3;
 
-	const int MAX_DEPTH = 50;
-	return color(orig, dir, frag.tex0, MAX_DEPTH);
+    // RNG
+    float2 randState = frag.tex0;
+
+    // Anti Aliasing setup
+    float3 color_acc = float3(0, 0, 0);
+
+    int pixel_samples = 10;
+    for (int i = 0; i < pixel_samples; ++i)
+    {
+        float u = ((frag.tex0.x * img_vp.x) + rand2d(randState)) / img_vp.x;
+        float v = ((frag.tex0.y * img_vp.y) + rand2d(randState)) / img_vp.y;
+
+        Ray r = { float3(0, 0, 0), float3(lower_left_corner.xyz + u * horizontal.xyz + v * vertical.xyz - origin.xyz) };
+        color_acc += color(r, w, randState);
+    }
+
+    // Separate the colors accumulated
+    float r = color_acc.x;
+    float g = color_acc.y;
+    float b = color_acc.z;
+
+    // Average out the values
+    float scale = 1.0 / pixel_samples;
+    r = sqrt(scale * r);
+    g = sqrt(scale * g);
+    b = sqrt(scale * b);
+
+    // Output final color
+    return float4(r, g, b, 1.0);
+
 }
