@@ -10,6 +10,9 @@ struct Vertex
 struct CameraSettings
 {
 	XMFLOAT4 img_vp;
+	XMFLOAT4 f4u;
+	XMFLOAT4 f4v;
+	XMFLOAT4 f4w;
 
     XMFLOAT4 origin;
     XMFLOAT4 horizontal;
@@ -17,7 +20,15 @@ struct CameraSettings
 
     XMFLOAT4 lower_left_corner;
 
-	CameraSettings(float vfov, float aspect, int img_width, float f_length, XMVECTOR lookFrom, XMVECTOR lookAt, XMVECTOR vup)
+	CameraSettings(float vfov,
+		float aspect,
+		float aperture,
+		float focus_dist,
+		int img_width,
+		float f_length,
+		XMVECTOR lookFrom,
+		XMVECTOR lookAt,
+		XMVECTOR vup)
 	{
 		// Image && Viewport
 		img_vp.x = (FLOAT)img_width;
@@ -34,11 +45,16 @@ struct CameraSettings
 
 		// Camera
 		XMStoreFloat4(&origin, lookFrom);
-		XMStoreFloat4(&horizontal, img_vp.w * u);
-		XMStoreFloat4(&vertical, img_vp.z * v);
+		XMStoreFloat4(&horizontal, focus_dist * img_vp.w * u);
+		XMStoreFloat4(&vertical, focus_dist * img_vp.z * v);
 
-		XMFLOAT4 w4;
-		XMStoreFloat4(&w4, w);
+		XMStoreFloat4(&f4w, w);
+		f4w.w = aperture / 2;
+		XMStoreFloat4(&f4u, u);
+		f4u.w = aperture / 2;
+		XMStoreFloat4(&f4v, v);
+		f4v.w = aperture / 2;
+
 		lower_left_corner = origin;
 
 		lower_left_corner.x -= (horizontal.x / 2.0);
@@ -49,9 +65,9 @@ struct CameraSettings
 		lower_left_corner.y -= (vertical.y / 2.0);
 		lower_left_corner.z -= (vertical.z / 2.0);
 
-		lower_left_corner.x -= w4.x;
-		lower_left_corner.y -= w4.y;
-		lower_left_corner.z -= w4.z;
+		lower_left_corner.x -= focus_dist * f4w.x;
+		lower_left_corner.y -= focus_dist * f4w.y;
+		lower_left_corner.z -= focus_dist * f4w.z;
 	}
 };
 
@@ -177,10 +193,14 @@ bool DXRayTrace::LoadContent()
     }
 
 	// CREATE CAM SETTINGS
-	XMFLOAT4 lookFrom(-2.0, 2.0, 1.0, 0.0);
-	XMFLOAT4 lookAt(0.0, 0.0, -1.0, 0.0);
-	XMFLOAT4 vup(0.0, 1.0, 0.0, 0.0);
-	CameraSettings cam(20.0, 4.0 / 3.0, 640, 1.0,
+	XMFLOAT4 lookFrom(13, 2, 3, 0);
+	XMFLOAT4 lookAt(0, 0, 0, 0);
+	XMFLOAT4 vup(0.0, 1.0, 0.0, 0);
+
+	float f_dist = 10.0;
+	float aperture = 0.1;
+
+	CameraSettings cam(20.0, 4.0 / 3.0, aperture, f_dist, 640, 1.0,
 		XMLoadFloat4(&lookFrom),
 		XMLoadFloat4(&lookAt),
 		XMLoadFloat4(&vup));

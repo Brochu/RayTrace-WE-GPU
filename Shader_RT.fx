@@ -1,6 +1,9 @@
 cbuffer CamSettings : register(b0)
 {
 	float4 img_vp;
+	float4 f4u;
+	float4 f4v;
+	float4 f4w;
 
     float4 origin;
     float4 horizontal;
@@ -52,9 +55,9 @@ struct Hit
 struct World
 {
     int count;
-    float4 world[64];
+    float4 world[128];
 
-    Material world_mat[64]; // 1:1 rel between world && world_mat
+    Material world_mat[128]; // 1:1 rel between world && world_mat
 };
 
 #define PI 3.1415926535
@@ -128,6 +131,17 @@ float3 random_in_unit_sphere(float2 randState)
     float z = r * cos(theta);
 
     return float3(x, y, z);
+}
+
+float3 random_in_unit_disk(float2 randState)
+{
+    float sinTheta = 2.0 * rand2d(randState) - 1.0;
+    float cosTheta = 2.0 * rand2d(randState) - 1.0;
+
+    float x = cos(cosTheta);
+    float y = cos(sinTheta);
+
+    return float3(x, y, 0);
 }
 
 float3 random_unit_vector(float2 randState)
@@ -271,6 +285,79 @@ bool mat_scatter(Material m, Ray r, Hit h, float2 randState, out float4 attenuat
     else return false;
 }
 
+Ray get_ray(float s, float t, float2 randState)
+{
+    float3 rd = f4w.w * random_in_unit_disk(randState);
+    float4 offset = f4u * rd.x + f4v * rd.y;
+
+    Ray r = {
+        origin.xyz + offset.xyz,
+        float3(lower_left_corner.xyz + s * horizontal.xyz + t * vertical.xyz) - origin.xyz - offset
+    };
+    return r;
+}
+
+World random_world(float2 randState)
+{
+    World w;
+    Material m;
+    int i = 0;
+
+    w.world[i] = AddLambert(m, float3(0, -1000, 0), 1000, float3(0.5, 0.5, 0.5));
+    w.world_mat[i] = m;
+    ++i;
+
+    //for (int a = -5; a < 5; ++a)
+    //{
+    //    for (int b = -5; b < 5; ++b)
+    //    {
+    //        float choose_mat = rand2d(randState);
+    //        float3 center = float3(a + 0.9 * rand2d(randState), 0.2, b + 0.9 * rand2d(randState));
+
+    //        if (length(center - float3(4, 0.2, 0)) > 0.9)
+    //        {
+    //            if (choose_mat < 0.8)
+    //            {
+    //                // Diffuse
+    //                float3 c = float3(rand2d(randState), rand2d(randState), rand2d(randState));
+    //                w.world[i] = AddLambert(m, center, 0.2, c);
+    //                w.world_mat[i] = m;
+
+    //            }
+    //            else if (choose_mat < 0.95)
+    //            {
+    //                // Metal
+    //                float3 c = float3(rand2d(randState), rand2d(randState), rand2d(randState));
+    //                float fuzz = rand2d(randState);
+    //                w.world[i] = AddMetal(m, center, 0.2, c, fuzz);
+    //                w.world_mat[i] = m;
+    //            }
+    //            else
+    //            {
+    //                // Glass
+    //                w.world[i] = AddDielectric(m, center, 0.2, 1.5);
+    //                w.world_mat[i] = m;
+    //            }
+    //        }
+
+    //        ++i;
+    //    }
+    //}
+
+    w.world[i] = AddDielectric(m, float3(0, 1, 0), 1.0, 1.5);
+    w.world_mat[i] = m;
+    ++i;
+    w.world[i] = AddLambert(m, float3(-4, 1, 0), 1.0, float3(0.4, 0.2, 0.1));
+    w.world_mat[i] = m;
+    ++i;
+    w.world[i] = AddMetal(m, float3(4, 1, 0), 1.0, float3(0.7, 0.6, 0.5), 0.0);
+    w.world_mat[i] = m;
+    ++i;
+
+    w.count = i;
+    return w;
+}
+
 bool hit_sphere(float4 sphere, Material m, Ray r, float t_min, float t_max, out Hit h)
 {
     float3 oc = r.orig - sphere.xyz;
@@ -355,35 +442,22 @@ float4 color(Ray r, World w, float2 randState)
 
 float4 PS_Main(PS_Input frag) : SV_TARGET
 {
-    // World
-    World w;
-    w.count = 5;
-
-    Material m;
-    w.world[0] = AddLambert(m, float3(0.0, -100.5, -1.0), 100.0, float3(0.8, 0.8, 0.0));
-    w.world_mat[0] = m;
-    w.world[1] = AddLambert(m, float3(0.0, 0.0, -1.0), 0.5, float3(0.1, 0.2, 0.5));
-    w.world_mat[1] = m;
-    w.world[2] = AddDielectric(m, float3(-1.0, 0.0, -1.0), 0.5, 1.5);
-    w.world_mat[2] = m;
-    w.world[3] = AddDielectric(m, float3(-1.0, 0.0, -1.0), -0.4, 1.5);
-    w.world_mat[3] = m;
-    w.world[4] = AddMetal(m, float3(1.0, 0.0, -1.0), 0.5, float3(0.8, 0.6, 0.2), 0.0);
-    w.world_mat[4] = m;
-
     // RNG
     float2 randState = frag.tex0;
+
+    // World
+    World w = random_world(randState);
 
     // Anti Aliasing setup
     float3 color_acc = float3(0, 0, 0);
 
-    int pixel_samples = 1;
+    int pixel_samples = 50;
     for (int i = 0; i < pixel_samples; ++i)
     {
         float u = ((frag.tex0.x * img_vp.x) + rand2d(randState)) / img_vp.x;
         float v = ((frag.tex0.y * img_vp.y) + rand2d(randState)) / img_vp.y;
 
-        Ray r = { origin.xyz, float3(lower_left_corner.xyz + u * horizontal.xyz + v * vertical.xyz) - origin.xyz };
+        Ray r = get_ray(u, v, randState);
         color_acc += color(r, w, randState);
     }
 
