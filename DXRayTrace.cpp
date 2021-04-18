@@ -17,30 +17,41 @@ struct CameraSettings
 
     XMFLOAT4 lower_left_corner;
 
-	CameraSettings(float aspect, int img_width, float vp_height, float f_length, XMFLOAT3 orig)
+	CameraSettings(float vfov, float aspect, int img_width, float f_length, XMVECTOR lookFrom, XMVECTOR lookAt, XMVECTOR vup)
 	{
 		// Image && Viewport
 		img_vp.x = (FLOAT)img_width;
 		img_vp.y = (FLOAT)(img_width / aspect);
 
-		img_vp.z = vp_height;
-		img_vp.w = aspect* vp_height;
+		float theta = XMConvertToRadians(vfov);
+		float h = tan(theta / 2);
+		img_vp.z = 2.0 * h;
+		img_vp.w = aspect* img_vp.z;
+
+		XMVECTOR w = XMVector4Normalize(lookFrom - lookAt);
+		XMVECTOR u = XMVector4Normalize(XMVector3Cross(vup, w));
+		XMVECTOR v = XMVector3Cross(w, u);
 
 		// Camera
-		origin = XMFLOAT4(orig.x, orig.y, orig.z, 1.0);
-		horizontal = XMFLOAT4(img_vp.w, 0, 0, 0);
-		vertical = XMFLOAT4(0, img_vp.z, 0, 0);
+		XMStoreFloat4(&origin, lookFrom);
+		XMStoreFloat4(&horizontal, img_vp.w * u);
+		XMStoreFloat4(&vertical, img_vp.z * v);
+
+		XMFLOAT4 w4;
+		XMStoreFloat4(&w4, w);
 		lower_left_corner = origin;
 
-		lower_left_corner.x -= horizontal.x / 2.0;
-		lower_left_corner.y -= horizontal.y / 2.0;
-		lower_left_corner.z -= horizontal.z / 2.0;
+		lower_left_corner.x -= (horizontal.x / 2.0);
+		lower_left_corner.y -= (horizontal.y / 2.0);
+		lower_left_corner.z -= (horizontal.z / 2.0);
 
-		lower_left_corner.x -= vertical.x / 2.0;
-		lower_left_corner.y -= vertical.y / 2.0;
-		lower_left_corner.z -= vertical.z / 2.0;
+		lower_left_corner.x -= (vertical.x / 2.0);
+		lower_left_corner.y -= (vertical.y / 2.0);
+		lower_left_corner.z -= (vertical.z / 2.0);
 
-		lower_left_corner.z -= f_length;
+		lower_left_corner.x -= w4.x;
+		lower_left_corner.y -= w4.y;
+		lower_left_corner.z -= w4.z;
 	}
 };
 
@@ -166,7 +177,13 @@ bool DXRayTrace::LoadContent()
     }
 
 	// CREATE CAM SETTINGS
-	CameraSettings cam(4.0 / 3.0, 640, 2.0, 1.0, XMFLOAT3(0, 0, 0));
+	XMFLOAT4 lookFrom(-2.0, 2.0, 1.0, 0.0);
+	XMFLOAT4 lookAt(0.0, 0.0, -1.0, 0.0);
+	XMFLOAT4 vup(0.0, 1.0, 0.0, 0.0);
+	CameraSettings cam(20.0, 4.0 / 3.0, 640, 1.0,
+		XMLoadFloat4(&lookFrom),
+		XMLoadFloat4(&lookAt),
+		XMLoadFloat4(&vup));
 
 	// CAM SETTINGS BUFFER
 	D3D11_BUFFER_DESC camSettingsDesc;

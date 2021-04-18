@@ -5,7 +5,6 @@ cbuffer CamSettings : register(b0)
     float4 origin;
     float4 horizontal;
     float4 vertical;
-
     float4 lower_left_corner;
 }
 
@@ -30,9 +29,14 @@ struct Ray
 
 struct Material
 {
-    bool is_metal;
+    // TYPES
+    // 0: Lambert
+    // 1: Metal
+    // 2: Dielectric
+    int type;
     float4 albedo; // color
     float fuzz; // Fuzzy reflections
+    float ir;
 };
 
 struct Hit
@@ -63,6 +67,37 @@ PS_Input VS_Main(VS_Input vertex)
     vsOut.tex0 = vertex.tex0;
 
     return vsOut;
+}
+
+// World utilities
+float4 AddLambert(out Material m, float3 pos, float r, float3 color)
+{
+    m.albedo = float4(color, 1.0);
+    m.type = 0;
+    m.fuzz = -1.0;
+    m.ir = -1.0;
+
+    return float4(pos, r);
+}
+
+float4 AddMetal(out Material m, float3 pos, float r, float3 color, float f)
+{
+    m.albedo = float4(color, 1.0);
+    m.type = 1;
+    m.fuzz = f;
+    m.ir = -1.0;
+
+    return float4(pos, r);
+}
+
+float4 AddDielectric(out Material m, float3 pos, float r, float ir)
+{
+    m.albedo = float4(1,1,1,1);
+    m.type = 2;
+    m.fuzz = -1.0;
+    m.ir = ir;
+
+    return float4(pos, r);
 }
 
 // I LOST THE RUN TO RNG DUDE??!
@@ -133,6 +168,26 @@ float3 reflect(float3 v, float3 normal)
     return v - 2 * dot(v, normal) * normal;
 }
 
+float3 refract(float3 v, float3 normal, float etai_on_etat)
+{
+    float costheta = min(dot(-v, normal), 1.0);
+    float3 r_out_perp = etai_on_etat * (v + costheta * normal);
+
+    float perp_length_sq = length(r_out_perp) * length(r_out_perp);
+    float3 r_out_par = -sqrt(abs(1.0 - perp_length_sq)) * normal;
+
+    return r_out_perp + r_out_par;
+}
+
+float reflectance(float cosine, float ref_index)
+{
+    // Schlick approx
+    float r0 = (1 - ref_index) / (1 + ref_index);
+    r0 = r0 * r0;
+
+    return r0 + (1 - r0) * pow((1 - cosine), 5);
+}
+
 void set_face_normal(Ray r, float3 outward_normal, inout Hit h)
 {
     h.front_face = dot(r.dir, outward_normal) < 0;
@@ -173,16 +228,47 @@ bool metal(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, o
     return true;
 }
 
-bool mat_scatter(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, out Ray scattered)
+bool dielectric(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, out Ray scattered)
 {
-    if (m.is_metal)
+    attenuation = float4(1.0, 1.0, 1.0, 1.0);
+    float refraction_ratio = h.front_face ? (1.0/m.ir) : m.ir;
+    float3 unit_direction = normalize(r.dir);
+
+    float cos_theta = min(dot(-unit_direction, h.normal), 1.0);
+    float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+    bool cantrefract = refraction_ratio * sin_theta > 1.0;
+
+    float3 direction = float3(0, 0, 0);
+    if (cantrefract || reflectance(cos_theta, refraction_ratio) > rand2d(randState))
     {
-        return metal(m, r, h, randState, attenuation, scattered);
+        direction = reflect(unit_direction, h.normal);
     }
     else
     {
+        direction = refract(unit_direction, h.normal, refraction_ratio);
+    }
+
+    Ray s = { h.p, direction };
+    scattered = s;
+
+    return true;
+}
+
+bool mat_scatter(Material m, Ray r, Hit h, float2 randState, out float4 attenuation, out Ray scattered)
+{
+    if (m.type == 0)
+    {
         return lambert(m, r, h, randState, attenuation, scattered);
     }
+    else if (m.type == 1)
+    {
+        return metal(m, r, h, randState, attenuation, scattered);
+    }
+    else if (m.type == 2)
+    {
+        return dielectric(m, r, h, randState, attenuation, scattered);
+    }
+    else return false;
 }
 
 bool hit_sphere(float4 sphere, Material m, Ray r, float t_min, float t_max, out Hit h)
@@ -271,23 +357,19 @@ float4 PS_Main(PS_Input frag) : SV_TARGET
 {
     // World
     World w;
-    w.count = 4;
+    w.count = 5;
 
-    w.world[0] = float4(0.0, -100.5, -1.0, 100.0);
-    Material m0 = { false, float4(0.8, 0.8, 0.0, 1.0), -1.0 };
-    w.world_mat[0] = m0;
-
-	w.world[1] = float4(0.0, 0.0, -1.0, 0.5);
-    Material m1 = { false, float4(0.7, 0.3, 0.3, 1.0), -1.0 };
-    w.world_mat[1] = m1;
-
-	w.world[2] = float4(-1.0, 0.0, -1.0, 0.5);
-    Material m2 = { true, float4(0.8, 0.8, 0.8, 1.0), 0.3 };
-    w.world_mat[2] = m2;
-
-	w.world[3] = float4(1.0, 0.0, -1.0, 0.5);
-    Material m3 = { true, float4(0.8, 0.6, 0.2, 1.0), 1.0 };
-    w.world_mat[3] = m3;
+    Material m;
+    w.world[0] = AddLambert(m, float3(0.0, -100.5, -1.0), 100.0, float3(0.8, 0.8, 0.0));
+    w.world_mat[0] = m;
+    w.world[1] = AddLambert(m, float3(0.0, 0.0, -1.0), 0.5, float3(0.1, 0.2, 0.5));
+    w.world_mat[1] = m;
+    w.world[2] = AddDielectric(m, float3(-1.0, 0.0, -1.0), 0.5, 1.5);
+    w.world_mat[2] = m;
+    w.world[3] = AddDielectric(m, float3(-1.0, 0.0, -1.0), -0.4, 1.5);
+    w.world_mat[3] = m;
+    w.world[4] = AddMetal(m, float3(1.0, 0.0, -1.0), 0.5, float3(0.8, 0.6, 0.2), 0.0);
+    w.world_mat[4] = m;
 
     // RNG
     float2 randState = frag.tex0;
@@ -295,13 +377,13 @@ float4 PS_Main(PS_Input frag) : SV_TARGET
     // Anti Aliasing setup
     float3 color_acc = float3(0, 0, 0);
 
-    int pixel_samples = 10;
+    int pixel_samples = 1;
     for (int i = 0; i < pixel_samples; ++i)
     {
         float u = ((frag.tex0.x * img_vp.x) + rand2d(randState)) / img_vp.x;
         float v = ((frag.tex0.y * img_vp.y) + rand2d(randState)) / img_vp.y;
 
-        Ray r = { float3(0, 0, 0), float3(lower_left_corner.xyz + u * horizontal.xyz + v * vertical.xyz - origin.xyz) };
+        Ray r = { origin.xyz, float3(lower_left_corner.xyz + u * horizontal.xyz + v * vertical.xyz) - origin.xyz };
         color_acc += color(r, w, randState);
     }
 
