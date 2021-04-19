@@ -307,42 +307,18 @@ World random_world(float2 randState)
     w.world_mat[i] = m;
     ++i;
 
-    //for (int a = -5; a < 5; ++a)
-    //{
-    //    for (int b = -5; b < 5; ++b)
-    //    {
-    //        float choose_mat = rand2d(randState);
-    //        float3 center = float3(a + 0.9 * rand2d(randState), 0.2, b + 0.9 * rand2d(randState));
+    //TODO: debug why loops + randoms don't work
+    w.world[i] = AddLambert(m, float3(3, 0.2, 1.5), 0.2, float3(0.2, 0.2, 0.8));
+    w.world_mat[i] = m;
+    ++i;
 
-    //        if (length(center - float3(4, 0.2, 0)) > 0.9)
-    //        {
-    //            if (choose_mat < 0.8)
-    //            {
-    //                // Diffuse
-    //                float3 c = float3(rand2d(randState), rand2d(randState), rand2d(randState));
-    //                w.world[i] = AddLambert(m, center, 0.2, c);
-    //                w.world_mat[i] = m;
+    w.world[i] = AddLambert(m, float3(4.5, 0.2, 1), 0.2, float3(0.2, 0.8, 0.2));
+    w.world_mat[i] = m;
+    ++i;
 
-    //            }
-    //            else if (choose_mat < 0.95)
-    //            {
-    //                // Metal
-    //                float3 c = float3(rand2d(randState), rand2d(randState), rand2d(randState));
-    //                float fuzz = rand2d(randState);
-    //                w.world[i] = AddMetal(m, center, 0.2, c, fuzz);
-    //                w.world_mat[i] = m;
-    //            }
-    //            else
-    //            {
-    //                // Glass
-    //                w.world[i] = AddDielectric(m, center, 0.2, 1.5);
-    //                w.world_mat[i] = m;
-    //            }
-    //        }
-
-    //        ++i;
-    //    }
-    //}
+    w.world[i] = AddLambert(m, float3(4.5, 0.2, 2), 0.2, float3(0.8, 0.3, 0.2));
+    w.world_mat[i] = m;
+    ++i;
 
     w.world[i] = AddDielectric(m, float3(0, 1, 0), 1.0, 1.5);
     w.world_mat[i] = m;
@@ -413,7 +389,7 @@ float4 color(Ray r, World w, float2 randState)
 {
     Ray cur_ray = r;
     float4 cur_atten = float4(1.0, 1.0, 1.0, 1.0);
-    for (int i = 0; i < 50; ++i)
+    for (int i = 0; i < 25; ++i)
     {
         Hit h;
         if (hit_world(w, cur_ray, 0.001, 1.#INF, h))
@@ -451,12 +427,13 @@ float4 PS_Main(PS_Input frag) : SV_TARGET
     // Anti Aliasing setup
     float3 color_acc = float3(0, 0, 0);
 
-    int pixel_samples = 50;
+    int pixel_samples = 20;
     for (int i = 0; i < pixel_samples; ++i)
     {
         float u = ((frag.tex0.x * img_vp.x) + rand2d(randState)) / img_vp.x;
         float v = ((frag.tex0.y * img_vp.y) + rand2d(randState)) / img_vp.y;
 
+        //TODO: Find how I can optimize this
         Ray r = get_ray(u, v, randState);
         color_acc += color(r, w, randState);
     }
