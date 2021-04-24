@@ -4,7 +4,9 @@
 
 #include <d3d11.h>
 #include <d3dx11.h>
+#include <d3dcompiler.h>
 #include <dxerr.h>
+#include <xnamath.h>
 
 class CDx11Base
 {
@@ -17,6 +19,7 @@ public:
 public:
     bool Initialize(HWND hWnd, HINSTANCE hInst);
     void Terminate();
+    bool CompileShader(LPCWSTR szFilePath, LPCSTR szFunc, LPCSTR szShaderModel, ID3DBlob** buffer);
 
 // Overrides
 public:

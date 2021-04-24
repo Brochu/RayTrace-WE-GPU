@@ -150,3 +150,33 @@ void CDx11Base::Terminate()
         m_pD3DDevice->Release();
     m_pD3DDevice= NULL;
 }
+
+bool CDx11Base::CompileShader(LPCWSTR szFilePath, LPCSTR szFunc, LPCSTR szShaderModel, ID3DBlob** buffer)
+{
+    // Set flags
+    DWORD flags = D3DCOMPILE_ENABLE_STRICTNESS;
+#ifdef _DEBUG
+    flags |= D3DCOMPILE_DEBUG;
+#endif
+    
+    // Compile shader
+    HRESULT hr;
+    ID3DBlob* errBuffer = 0;
+    hr = ::D3DX11CompileFromFile(
+        szFilePath, 0, 0, szFunc, szShaderModel,
+        flags, 0, 0, buffer, &errBuffer, 0);
+
+    // Check for errors
+    if (FAILED(hr)) {
+        if (errBuffer != NULL) {
+            ::OutputDebugStringA((char*)errBuffer->GetBufferPointer());
+            errBuffer->Release();
+        }
+        return false;
+    }
+    
+    // Cleanup
+    if (errBuffer != NULL)
+        errBuffer->Release( );
+    return true;
+}

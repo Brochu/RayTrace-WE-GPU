@@ -11,13 +11,24 @@ public:
     DxCSApp();
     virtual ~DxCSApp();
 
-// Overrides
-public:
+	// Start Overrides
     virtual bool LoadContent();
     virtual void UnloadContent();
 
     virtual void Update();
     virtual void Render();
+	// End Overrides
+
+protected:
+    ID3D11VertexShader* pVShader;
+    ID3D11PixelShader* pPShader;
+	ID3D11ComputeShader* pCShader;
+
+    ID3D11InputLayout* pInputLayout;
+    ID3D11Buffer* pVertexBuffer;
+
+	LPCWSTR DisplayShaderName = L"ShaderDisplay.hlsl";
+	LPCWSTR ComputeShaderName = L"ShaderCompute.hlsl";
 };
 
 
