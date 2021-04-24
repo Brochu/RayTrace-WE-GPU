@@ -20,6 +20,9 @@ public:
 	// End Overrides
 
 protected:
+	LPCWSTR DisplayShaderName = L"ShaderDisplay.hlsl";
+	LPCWSTR ComputeShaderName = L"ShaderCompute.hlsl";
+
     ID3D11VertexShader* pVShader;
     ID3D11PixelShader* pPShader;
 	ID3D11ComputeShader* pCShader;
@@ -27,8 +30,10 @@ protected:
     ID3D11InputLayout* pInputLayout;
     ID3D11Buffer* pVertexBuffer;
 
-	LPCWSTR DisplayShaderName = L"ShaderDisplay.hlsl";
-	LPCWSTR ComputeShaderName = L"ShaderCompute.hlsl";
+	ID3D11Texture2D* pOutputTex;
+	ID3D11ShaderResourceView* pOutputSRV;
+
+    ID3D11SamplerState* pOutputSampler;
 };
 
 
