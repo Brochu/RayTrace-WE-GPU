@@ -427,7 +427,7 @@ float4 PS_Main(PS_Input frag) : SV_TARGET
     // Anti Aliasing setup
     float3 color_acc = float3(0, 0, 0);
 
-    int pixel_samples = 20;
+    int pixel_samples = 1;
     for (int i = 0; i < pixel_samples; ++i)
     {
         float u = ((frag.tex0.x * img_vp.x) + rand2d(randState)) / img_vp.x;
