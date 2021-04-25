@@ -1,11 +1,19 @@
 
 #include "DxCSApp.h"
-#include <iostream>
 
 struct Vertex
 {
 	XMFLOAT3 pos;
 	XMFLOAT2 tex0;
+};
+
+struct PerFrame
+{
+	XMMATRIX viewProj;
+	XMMATRIX invViewProj;
+
+	// To change some things based on time...?
+	XMFLOAT4 time;
 };
 
 DxCSApp::DxCSApp()
@@ -22,6 +30,17 @@ DxCSApp::DxCSApp()
 	pOutputUAV = NULL;
 
     pOutputSampler = NULL;
+
+	pPerFrameCBuf = NULL;
+	camPos = XMVECTOR { 0.0, 0.0, -1.0, 1.0 };
+	camLookAt = XMVECTOR { 0.0, 0.0, 0.0, 1.0 };
+	upDir = XMVECTOR { 0.0, 1.0, 0.0, 0.0 };
+	perspectiveVals = { 80.0, 1, 0.001, 10000 }; // Values: FoV angle Y, aspect ratio, near Z, far Z
+
+	t0 = Clock::now().time_since_epoch().count();
+	tlast = Clock::now().time_since_epoch().count();
+	tnow = Clock::now().time_since_epoch().count();
+	timeVals = XMFLOAT4{ 0.0, 0.0, 0.0, 0.0 }; // Values: Time, DeltaTime, Time*2, DeltaTime*2
 }
 
 DxCSApp::~DxCSApp()
@@ -207,6 +226,33 @@ bool DxCSApp::LoadContent()
         return false;
     }
 
+	////////////////////////////////////////
+    // Per Frame CBuffer
+	PerFrame frameCBuf;
+	// Set matrices in the struct OR Set everything in ctor???
+	// Also find a way to update this every frame
+	frameCBuf.time = timeVals;
+	XMMATRIX viewMat = XMMatrixLookAtLH(camPos, camLookAt, upDir);
+	XMMATRIX projMat = XMMatrixPerspectiveFovLH(perspectiveVals.x, perspectiveVals.y, perspectiveVals.z, perspectiveVals.w);
+
+	D3D11_BUFFER_DESC frameCBufDesc;
+	::ZeroMemory(&frameCBufDesc, sizeof(frameCBufDesc));
+	frameCBufDesc.Usage = D3D11_USAGE_DEFAULT;
+	frameCBufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	frameCBufDesc.ByteWidth = sizeof(PerFrame);
+
+	D3D11_SUBRESOURCE_DATA frameCBufData;
+	::ZeroMemory(&frameCBufData, sizeof(frameCBufData));
+	frameCBufData.pSysMem = &frameCBuf;
+
+	// Create cam settings cbuffer
+	hr = m_pD3DDevice->CreateBuffer(&frameCBufDesc, &frameCBufData, &pPerFrameCBuf);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+	debugLog = std::ofstream("debug.log");
+
     return true;
 }
 
@@ -238,10 +284,27 @@ void DxCSApp::UnloadContent()
 	// Clear Sampler
 	if (pOutputSampler) pOutputSampler->Release();
 	pOutputSampler = NULL;
+
+	if (pPerFrameCBuf) pPerFrameCBuf->Release();
+	pPerFrameCBuf = NULL;
+
+	debugLog.close();
 }
 
 void DxCSApp::Update()
 {
+	// Time updates
+	tnow = Clock::now().time_since_epoch().count();
+
+	long long delta = tnow - tlast;
+	long long elapsed = tnow - t0;
+
+	timeVals.x = elapsed / 10000000.0;
+	timeVals.y = delta / 10000000.0;
+	timeVals.z = timeVals.x * 2;
+	timeVals.w = timeVals.y * 2;
+
+	tlast = tnow;
 }
 
 void DxCSApp::Render()

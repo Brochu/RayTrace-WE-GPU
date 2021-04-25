@@ -3,6 +3,11 @@
 #define _DXCSAPP_H_
 
 #include "Dx11Base.h"
+#include <chrono>
+#include <fstream>
+
+// Time typedefs
+using Clock = std::chrono::system_clock;
 
 class DxCSApp : public CDx11Base
 {
@@ -20,6 +25,8 @@ public:
 	// End Overrides
 
 protected:
+	std::ofstream debugLog;
+
 	LPCWSTR DisplayShaderName = L"ShaderDisplay.hlsl";
 	LPCWSTR ComputeShaderName = L"ShaderCompute.hlsl";
 
@@ -35,6 +42,17 @@ protected:
 	ID3D11UnorderedAccessView* pOutputUAV;
 
     ID3D11SamplerState* pOutputSampler;
+
+    ID3D11Buffer* pPerFrameCBuf;
+	XMVECTOR camPos;
+	XMVECTOR camLookAt;
+	XMVECTOR upDir;
+	XMFLOAT4 perspectiveVals; // Packed transformation matrix values
+
+	long long t0;
+	long long tlast;
+	long long tnow;
+	XMFLOAT4 timeVals; // Packed time values
 };
 
 
