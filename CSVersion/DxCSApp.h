@@ -32,6 +32,7 @@ protected:
 
 	ID3D11Texture2D* pOutputTex;
 	ID3D11ShaderResourceView* pOutputSRV;
+	ID3D11UnorderedAccessView* pOutputUAV;
 
     ID3D11SamplerState* pOutputSampler;
 };

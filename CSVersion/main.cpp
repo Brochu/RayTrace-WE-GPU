@@ -82,7 +82,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 bool CreateMainWnd(int nCmdShow)
 {
     // Calculate main window size
-    RECT rc = { 0, 0, 640, 480 };
+    RECT rc = { 0, 0, 256, 256 };
     ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
     // Create the main window

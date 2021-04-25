@@ -16,6 +16,12 @@ DxCSApp::DxCSApp()
 
     pInputLayout  = NULL;
     pVertexBuffer = NULL;
+
+	pOutputTex = NULL;
+	pOutputSRV = NULL;
+	pOutputUAV = NULL;
+
+    pOutputSampler = NULL;
 }
 
 DxCSApp::~DxCSApp()
@@ -97,16 +103,40 @@ bool DxCSApp::LoadContent()
     pPSBuffer = NULL;
 
 	////////////////////////////////////////
+    // Compile Compute Shader
+    ID3DBlob* pCSBuffer = NULL;
+    res = CompileShader(ComputeShaderName, "CSMain", "cs_5_0", &pCSBuffer);
+    if (res == false) {
+        ::MessageBox(m_hWnd, L"Unable to load compute shader", L"ERROR", MB_OK);
+        return false;
+    }
+
+    // Create Compute shader
+	hr = m_pD3DDevice->CreateComputeShader(
+		pCSBuffer->GetBufferPointer(),
+		pCSBuffer->GetBufferSize(),
+		0, &pCShader
+	);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    // Cleanup PS buffer
+    pCSBuffer->Release();
+    pCSBuffer = NULL;
+
+
+	////////////////////////////////////////
     // Define triangle
     Vertex vertices[] =
     {
-        { XMFLOAT3(  0.95f,  0.95f, 1.0f ), XMFLOAT2( 1.0f, 1.0f ) },
-        { XMFLOAT3(  0.95f, -0.95f, 1.0f ), XMFLOAT2( 1.0f, 0.0f ) },
-        { XMFLOAT3( -0.95f, -0.95f, 1.0f ), XMFLOAT2( 0.0f, 0.0f ) },
+        { XMFLOAT3(  1.0f,  1.0f, 1.0f ), XMFLOAT2( 1.0f, 1.0f ) },
+        { XMFLOAT3(  1.0f, -1.0f, 1.0f ), XMFLOAT2( 1.0f, 0.0f ) },
+        { XMFLOAT3( -1.0f, -1.0f, 1.0f ), XMFLOAT2( 0.0f, 0.0f ) },
 
-        { XMFLOAT3( -0.95f, -0.95f, 1.0f ), XMFLOAT2( 0.0f, 0.0f ) },
-        { XMFLOAT3( -0.95f,  0.95f, 1.0f ), XMFLOAT2( 0.0f, 1.0f ) },
-        { XMFLOAT3(  0.95f,  0.95f, 1.0f ), XMFLOAT2( 1.0f, 1.0f ) },
+        { XMFLOAT3( -1.0f, -1.0f, 1.0f ), XMFLOAT2( 0.0f, 0.0f ) },
+        { XMFLOAT3( -1.0f,  1.0f, 1.0f ), XMFLOAT2( 0.0f, 1.0f ) },
+        { XMFLOAT3(  1.0f,  1.0f, 1.0f ), XMFLOAT2( 1.0f, 1.0f ) },
     };
 
     // Vertex description
@@ -133,45 +163,33 @@ bool DxCSApp::LoadContent()
     outputTexDesc.ArraySize = 1;
     outputTexDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
     outputTexDesc.CPUAccessFlags = 0;
-    outputTexDesc.Height = 480;
-    outputTexDesc.Width = 640;
+    outputTexDesc.Height = 256;
+    outputTexDesc.Width = 256;
     outputTexDesc.MipLevels = 1;
     outputTexDesc.MiscFlags = 0;
     outputTexDesc.SampleDesc.Count = 1;
     outputTexDesc.SampleDesc.Quality = 0;
     outputTexDesc.Usage = D3D11_USAGE_DEFAULT;
-    outputTexDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    outputTexDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
 
-    // Tex data
-	UINT* texData = new UINT[480 * 640 * 4];
-	for (int y = 0; y < 480; ++y)
-	{
-		for (int x = 0; x < 640; ++x)
-		{
-			UINT idx = y * 640 + x;
-			texData[idx] = MAXINT32 * (float)(rand() / (float)RAND_MAX);
-		}
-	}
-    D3D11_SUBRESOURCE_DATA defTexDesc;
-    ::ZeroMemory(&defTexDesc, sizeof(defTexDesc));
-	defTexDesc.pSysMem = texData;
-	defTexDesc.SysMemPitch = 640*4;
-	defTexDesc.SysMemSlicePitch = 0;
-
-	hr = m_pD3DDevice->CreateTexture2D(&outputTexDesc, &defTexDesc, &pOutputTex);
+	hr = m_pD3DDevice->CreateTexture2D(&outputTexDesc, 0, &pOutputTex);
     if (FAILED(hr)) {
         return false;
     }
-	delete[] texData;
-	texData = nullptr;
 
 	// Define Shader Resource View for output texture
-	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Format = outputTexDesc.Format;
 	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MostDetailedMip = 0;
 	srvDesc.Texture2D.MipLevels = 1;
 	hr = m_pD3DDevice->CreateShaderResourceView(pOutputTex, &srvDesc, &pOutputSRV);
+
+	CD3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+	uavDesc.Format = outputTexDesc.Format;
+	uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+	uavDesc.Texture2D.MipSlice = 0;
+	hr = m_pD3DDevice->CreateUnorderedAccessView(pOutputTex, &uavDesc, &pOutputUAV);
 
 	////////////////////////////////////////
     // Texture sampler
@@ -195,6 +213,7 @@ bool DxCSApp::LoadContent()
 void DxCSApp::UnloadContent()
 {
     // Cleanup
+	// Clear Shader
     if (pCShader) pCShader->Release();
     pCShader = NULL;
     if (pVShader) pVShader->Release();
@@ -202,10 +221,23 @@ void DxCSApp::UnloadContent()
     if (pPShader) pPShader->Release();
     pPShader = NULL;
 
+	// Clear VBuffer
     if (pInputLayout) pInputLayout->Release();
     pInputLayout = NULL;
     if (pVertexBuffer) pVertexBuffer->Release();
     pVertexBuffer = NULL;
+
+	// Clear Textures
+	if (pOutputTex) pOutputTex->Release();
+	pOutputTex = NULL;
+	if (pOutputSRV) pOutputSRV->Release();
+	pOutputSRV = NULL;
+	if (pOutputUAV) pOutputUAV->Release();
+	pOutputUAV = NULL;
+
+	// Clear Sampler
+	if (pOutputSampler) pOutputSampler->Release();
+	pOutputSampler = NULL;
 }
 
 void DxCSApp::Update()
@@ -218,10 +250,27 @@ void DxCSApp::Render()
     if (m_pD3DContext == NULL)
         return;
 
+	////////////////////////////////////////
     // Clear back buffer
     float color[4] = { 0.5f, 0.0f, 0.5f, 1.0f };
     m_pD3DContext->ClearRenderTargetView(m_pD3DRenderTargetView, color);
 
+	////////////////////////////////////////
+	// Compute Shader pass, texture generation
+	UINT UAVInitialCounts = 0;
+
+	m_pD3DContext->CSSetShader(pCShader, 0, 0);
+
+	ID3D11ShaderResourceView* NullSRV = nullptr;
+	m_pD3DContext->PSSetShaderResources(0, 1, &NullSRV);
+
+	m_pD3DContext->CSSetUnorderedAccessViews(0, 1, &pOutputUAV, &UAVInitialCounts);
+
+	// Compute Shader Run
+	m_pD3DContext->Dispatch(32, 32, 1);
+
+	////////////////////////////////////////
+	// Render texture on screen
 	UINT stride = sizeof(Vertex);
 	UINT offset = 0;
 
@@ -233,8 +282,13 @@ void DxCSApp::Render()
 	// Set Shaders
 	m_pD3DContext->VSSetShader(pVShader, 0, 0);
 	m_pD3DContext->PSSetShader(pPShader, 0, 0);
+
+	ID3D11UnorderedAccessView* NullUAV = nullptr;
+	m_pD3DContext->CSSetUnorderedAccessViews(0, 1, &NullUAV, &UAVInitialCounts);
+
 	m_pD3DContext->PSSetShaderResources(0, 1, &pOutputSRV);
 	m_pD3DContext->PSSetSamplers(0, 1, &pOutputSampler);
+
 
 	// Draw Triangle
 	m_pD3DContext->Draw(6, 0);
