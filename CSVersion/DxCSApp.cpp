@@ -228,25 +228,17 @@ bool DxCSApp::LoadContent()
 
 	////////////////////////////////////////
     // Per Frame CBuffer
-	PerFrame frameCBuf;
-	// Set matrices in the struct OR Set everything in ctor???
-	// Also find a way to update this every frame
-	frameCBuf.time = timeVals;
-	XMMATRIX viewMat = XMMatrixLookAtLH(camPos, camLookAt, upDir);
-	XMMATRIX projMat = XMMatrixPerspectiveFovLH(perspectiveVals.x, perspectiveVals.y, perspectiveVals.z, perspectiveVals.w);
-
 	D3D11_BUFFER_DESC frameCBufDesc;
 	::ZeroMemory(&frameCBufDesc, sizeof(frameCBufDesc));
-	frameCBufDesc.Usage = D3D11_USAGE_DEFAULT;
-	frameCBufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	frameCBufDesc.ByteWidth = sizeof(PerFrame);
+	frameCBufDesc.Usage = D3D11_USAGE_DYNAMIC;
+	frameCBufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	frameCBufDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	frameCBufDesc.MiscFlags = 0;
+	frameCBufDesc.StructureByteStride = 0;
 
-	D3D11_SUBRESOURCE_DATA frameCBufData;
-	::ZeroMemory(&frameCBufData, sizeof(frameCBufData));
-	frameCBufData.pSysMem = &frameCBuf;
-
-	// Create cam settings cbuffer
-	hr = m_pD3DDevice->CreateBuffer(&frameCBufDesc, &frameCBufData, &pPerFrameCBuf);
+	// Create per frame cbuffer
+	hr = m_pD3DDevice->CreateBuffer(&frameCBufDesc, 0, &pPerFrameCBuf);
     if (FAILED(hr)) {
         return false;
     }
@@ -305,6 +297,23 @@ void DxCSApp::Update()
 	timeVals.w = timeVals.y * 2;
 
 	tlast = tnow;
+
+
+	D3D11_MAPPED_SUBRESOURCE mappedRes;
+	ZeroMemory(&mappedRes, sizeof(D3D11_MAPPED_SUBRESOURCE));
+
+	PerFrame frameCBuf;
+	XMMATRIX viewMat = XMMatrixLookAtLH(camPos, camLookAt, upDir);
+	XMMATRIX projMat = XMMatrixPerspectiveFovLH(perspectiveVals.x, perspectiveVals.y, perspectiveVals.z, perspectiveVals.w);
+
+	frameCBuf.viewProj = XMMatrixMultiply(viewMat, projMat);
+	XMVECTOR det = XMMatrixDeterminant(frameCBuf.viewProj);
+	frameCBuf.invViewProj = XMMatrixInverse(&det, frameCBuf.viewProj);
+	frameCBuf.time = timeVals;
+
+	m_pD3DContext->Map(pPerFrameCBuf, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
+	memcpy(mappedRes.pData, &frameCBuf, sizeof(frameCBuf));
+	m_pD3DContext->Unmap(pPerFrameCBuf, 0);
 }
 
 void DxCSApp::Render()
@@ -328,6 +337,7 @@ void DxCSApp::Render()
 	m_pD3DContext->PSSetShaderResources(0, 1, &NullSRV);
 
 	m_pD3DContext->CSSetUnorderedAccessViews(0, 1, &pOutputUAV, &UAVInitialCounts);
+	m_pD3DContext->CSSetConstantBuffers(0, 1, &pPerFrameCBuf);
 
 	// Compute Shader Run
 	m_pD3DContext->Dispatch(32, 32, 1);
