@@ -32,8 +32,8 @@ DxCSApp::DxCSApp()
     pOutputSampler = NULL;
 
 	pPerFrameCBuf = NULL;
-	camPos = XMVECTOR { 0.0, 0.0, -1.0, 1.0 };
-	camLookAt = XMVECTOR { 0.0, 0.0, 0.0, 1.0 };
+	camPos = XMVECTOR { 0.0, 0.0, 0.0, 1.0 };
+	camLookAt = XMVECTOR { 0.0, 0.0, -1.0, 1.0 };
 	upDir = XMVECTOR { 0.0, 1.0, 0.0, 0.0 };
 	perspectiveVals = { 80.0, 1, 0.001, 10000 }; // Values: FoV angle Y, aspect ratio, near Z, far Z
 
@@ -298,15 +298,18 @@ void DxCSApp::Update()
 
 	tlast = tnow;
 
+	// Transformation matrices updates
+	// TEMP START
+	camPos = { 0.0, abs(sin((float)timeVals.x)), abs(cos((float)timeVals.x)), 1.0 };
+	// TEMP END
 
 	D3D11_MAPPED_SUBRESOURCE mappedRes;
 	ZeroMemory(&mappedRes, sizeof(D3D11_MAPPED_SUBRESOURCE));
 
 	PerFrame frameCBuf;
-	XMMATRIX viewMat = XMMatrixLookAtLH(camPos, camLookAt, upDir);
-	XMMATRIX projMat = XMMatrixPerspectiveFovLH(perspectiveVals.x, perspectiveVals.y, perspectiveVals.z, perspectiveVals.w);
+	XMMATRIX viewMat = XMMatrixLookAtRH(camPos, camLookAt, upDir);
 
-	frameCBuf.viewProj = XMMatrixMultiply(viewMat, projMat);
+	frameCBuf.viewProj = XMMatrixTranspose(viewMat);
 	XMVECTOR det = XMMatrixDeterminant(frameCBuf.viewProj);
 	frameCBuf.invViewProj = XMMatrixInverse(&det, frameCBuf.viewProj);
 	frameCBuf.time = timeVals;

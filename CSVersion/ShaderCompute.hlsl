@@ -1,3 +1,11 @@
+cbuffer PerFrame : register(b0)
+{
+	float4x4 viewProj;
+	float4x4 invViewProj;
+
+	float4 time;
+}
+
 ////////////////////////////////////////
 // Ray
 struct Ray
@@ -13,11 +21,12 @@ float3 ray_at(Ray r, float t)
 
 Ray get_ray(float s, float t)
 {
-    Ray r =
-    {
-        float3(0.0, 0.0, 0.0),
-        float3((s*2)-1, (t*2)-1, -1.0)
-    };
+    // Build the ray and move it based on view and projection
+    Ray r;
+    r.orig = mul(float4(0, 0, 0, 1), invViewProj);
+    float4 at = mul(float4((s * 2) - 1, (t * 2) - 1, -1.0, 1), invViewProj);
+    r.dir = normalize(at.xyz - r.orig);
+
     return r;
 }
 ////////////////////////////////////////
@@ -87,30 +96,22 @@ bool hit_sphere(float4 sphere, Ray r, float t_min, float t_max, out Hit h)
 float4 sample_color(Ray r)
 {
     Hit h;
-    float4 sphere = float4(0,0,-2,0.8);
+    float4 sphere = float4(0,0,-1,0.5);
     float4 ground = float4(0,-100,0,100);
 
     if (hit_sphere(sphere, r, 0.0001, 1.#INF, h))
     {
-        return float4(h.normal, 1.0);
+        //return float4(h.normal, 1.0);
         return float4(0.8, 0.2, 0.5, 1.0);
     }
 
     if (hit_sphere(ground, r, 0.0001, 1.#INF, h))
     {
-        return float4(h.normal, 1.0);
-        return float4(0.2, 0.8, 0.5, 1.0);
+        //return float4(h.normal, 1.0);
+        return float4(0.2, 0.2, 0.8, 1.0);
     }
 
-    return float4(0.1, 0.4, 0.8, 1.0);
-}
-
-cbuffer PerFrame : register(b0)
-{
-	float4x4 viewProj;
-	float4x4 invViewProj;
-
-	float4 time;
+    return float4(0.1, 0.8, 0.4, 1.0);
 }
 
 RWTexture2D<float4> OutputColors : register(t0);
@@ -118,14 +119,16 @@ RWTexture2D<float4> OutputColors : register(t0);
 [numthreads(32, 32, 1)]
 void CSMain( uint3 DTid : SV_DispatchThreadID )
 {
-    //Ray r = get_ray(DTid.x / (float)256, DTid.y / (float)256);
-    //OutputColors[DTid.xy] = sample_color(r);
+    float u = DTid.x / (float)256;
+    float v = DTid.y / (float)256;
+    Ray r = get_ray(u, v);
+    OutputColors[DTid.xy] = sample_color(r);
 
-    float2 seed = DTid.xy * frac(time.z);
-    float rr = rand(seed);
-    float rg = rand(seed);
-    float rb = rand(seed);
-
-    OutputColors[DTid.xy] = float4(rr, rg, rb, 1.0);
+    //float2 seed = DTid.xy * frac(time.z);
+    //float rr = rand(seed);
+    //float rg = rand(seed);
+    //float rb = rand(seed);
+    //OutputColors[DTid.xy] = float4(rr, rg, rb, 1);
+    //OutputColors[DTid.xy] = float4(u * abs(sin(time.x+1)), 0.2, v * abs(cos(time.x)), 1);
 }
 
