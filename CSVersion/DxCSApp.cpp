@@ -16,6 +16,12 @@ struct PerFrame
 	XMFLOAT4 time;
 };
 
+struct WorldDef
+{
+	XMFLOAT4 count;
+	XMFLOAT4 spheres[64];
+};
+
 DxCSApp::DxCSApp()
 {
 	pCShader = NULL;
@@ -41,6 +47,8 @@ DxCSApp::DxCSApp()
 	tlast = Clock::now().time_since_epoch().count();
 	tnow = Clock::now().time_since_epoch().count();
 	timeVals = XMFLOAT4{ 0.0, 0.0, 0.0, 0.0 }; // Values: Time, DeltaTime, Time*2, DeltaTime*2
+
+    pWorldCBuf = NULL;
 }
 
 DxCSApp::~DxCSApp()
@@ -243,6 +251,32 @@ bool DxCSApp::LoadContent()
         return false;
     }
 
+	////////////////////////////////////////
+    // World Definition CBuffer
+	D3D11_BUFFER_DESC worldBufDesc;
+	::ZeroMemory(&worldBufDesc, sizeof(worldBufDesc));
+	worldBufDesc.ByteWidth = sizeof(WorldDef);
+	worldBufDesc.Usage = D3D11_USAGE_IMMUTABLE;
+	worldBufDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	worldBufDesc.MiscFlags = 0;
+	worldBufDesc.StructureByteStride = 0;
+
+	WorldDef w;
+	w.count = { 2, 2, 2, 2 };
+	w.spheres[0] = { 0, 0, -1, 0.5 };
+	w.spheres[1] = { 0, -100.5, -1, 100 };
+
+    // World data
+    D3D11_SUBRESOURCE_DATA worldData;
+    ZeroMemory(&worldData, sizeof(worldData));
+    worldData.pSysMem = &w;
+
+	// Create World cbuffer
+	hr = m_pD3DDevice->CreateBuffer(&worldBufDesc, &worldData, &pWorldCBuf);
+    if (FAILED(hr)) {
+		return false;
+    }
+
 	debugLog = std::ofstream("debug.log");
 
     return true;
@@ -279,6 +313,9 @@ void DxCSApp::UnloadContent()
 
 	if (pPerFrameCBuf) pPerFrameCBuf->Release();
 	pPerFrameCBuf = NULL;
+
+	if (pWorldCBuf) pWorldCBuf->Release();
+    pWorldCBuf = NULL;
 
 	debugLog.close();
 }
@@ -343,6 +380,7 @@ void DxCSApp::Render()
 
 	m_pD3DContext->CSSetUnorderedAccessViews(0, 1, &pOutputUAV, &UAVInitialCounts);
 	m_pD3DContext->CSSetConstantBuffers(0, 1, &pPerFrameCBuf);
+	m_pD3DContext->CSSetConstantBuffers(1, 1, &pWorldCBuf);
 
 	// Compute Shader Run
 	m_pD3DContext->Dispatch(32, 32, 1);

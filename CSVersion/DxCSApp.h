@@ -53,6 +53,8 @@ protected:
 	long long tlast;
 	long long tnow;
 	XMFLOAT4 timeVals; // Packed time values
+
+    ID3D11Buffer* pWorldCBuf;
 };
 
 
