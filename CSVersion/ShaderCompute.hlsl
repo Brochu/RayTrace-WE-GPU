@@ -1,7 +1,9 @@
+#define PI 3.1415926535897932385;
+
 cbuffer PerFrame : register(b0)
 {
-	float4x4 viewProj;
-	float4x4 invViewProj;
+	float4x4 viewMat;
+	float4x4 invViewMat;
 
 	float4 time;
 }
@@ -23,8 +25,8 @@ Ray get_ray(float s, float t)
 {
     // Build the ray and move it based on view and projection
     Ray r;
-    r.orig = mul(float4(0, 0, 0, 1), invViewProj);
-    float4 at = mul(float4((s * 2) - 1, (t * 2) - 1, -1.0, 1), invViewProj);
+    r.orig = mul(float4(0, 0, 0, 1), invViewMat);
+    float4 at = mul(float4((s * 2) - 1, (t * 2) - 1, -1.0, 1), invViewMat);
     r.dir = normalize(at.xyz - r.orig);
 
     return r;
@@ -56,6 +58,22 @@ float rand(inout float2 uv)
     uv = noise;
 
     return abs(noise.x + noise.y) * 0.5;
+}
+
+float3 random_in_unit_sphere(float2 randState)
+{
+    float phi = 2.0 * rand(randState) * (float) PI;
+    float cosTheta = 2.0 * rand(randState) - 1.0;
+    float u = rand(randState);
+
+    float theta = acos(cosTheta);
+    float r = pow(u, 1.0 / 3.0);
+
+    float x = r * sin(theta) * cos(phi);
+    float y = r * sin(theta) * sin(phi);
+    float z = r * cos(theta);
+
+    return float3(x, y, z);
 }
 ////////////////////////////////////////
 
@@ -95,23 +113,33 @@ bool hit_sphere(float4 sphere, Ray r, float t_min, float t_max, out Hit h)
 
 float4 sample_color(Ray r)
 {
-    Hit h;
+    //TODO Continue implementing diffuse colors with secondary reflected rays
     float4 sphere = float4(0,0,-1,0.5);
     float4 ground = float4(0,-100,0,100);
 
-    if (hit_sphere(sphere, r, 0.0001, 1.#INF, h))
+    Ray cur_ray = r;
+    float4 cur_atten = float4(1.0, 1.0, 1.0, 1.0);
+    for (int i = 0; i < 25; ++i)
     {
-        //return float4(h.normal, 1.0);
-        return float4(0.8, 0.2, 0.5, 1.0);
+        Hit h;
+        if (hit_sphere(sphere, cur_ray, 0.001, 1.#INF, h))
+        {
+        }
+        else if (hit_sphere(ground, cur_ray, 0.001, 1.#INF, h))
+        {
+        }
+        else
+        {
+            float3 unit_dir = normalize(cur_ray.dir);
+            float t = 0.5 * (unit_dir.y + 1.0);
+            float3 color = (1.0 - t) * float3(1, 1, 1) + t * float3(0.5, 0.7, 1.0);
+
+            return float4((cur_atten.xyz * color), 1.0);
+        }
     }
 
-    if (hit_sphere(ground, r, 0.0001, 1.#INF, h))
-    {
-        //return float4(h.normal, 1.0);
-        return float4(0.2, 0.2, 0.8, 1.0);
-    }
+    return float4(0.0, 0.0, 0.0, 1.0);
 
-    return float4(0.1, 0.8, 0.4, 1.0);
 }
 
 RWTexture2D<float4> OutputColors : register(t0);

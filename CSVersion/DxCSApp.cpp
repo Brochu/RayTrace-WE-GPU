@@ -9,8 +9,8 @@ struct Vertex
 
 struct PerFrame
 {
-	XMMATRIX viewProj;
-	XMMATRIX invViewProj;
+	XMMATRIX viewMat;
+	XMMATRIX invViewMat;
 
 	// To change some things based on time...?
 	XMFLOAT4 time;
@@ -300,7 +300,9 @@ void DxCSApp::Update()
 
 	// Transformation matrices updates
 	// TEMP START
-	camPos = { 0.0, abs(sin((float)timeVals.x)), abs(cos((float)timeVals.x)), 1.0 };
+	//camPos = { 0.0, abs(sin((float)timeVals.x)), 0.0, 1.0 };
+	//camLookAt = { sin((float)timeVals.x), 0.0, -1.0, 1.0 };
+	//upDir = { sin((float)timeVals.x), 1.0, 0.0, 0.0 };
 	// TEMP END
 
 	D3D11_MAPPED_SUBRESOURCE mappedRes;
@@ -309,9 +311,9 @@ void DxCSApp::Update()
 	PerFrame frameCBuf;
 	XMMATRIX viewMat = XMMatrixLookAtRH(camPos, camLookAt, upDir);
 
-	frameCBuf.viewProj = XMMatrixTranspose(viewMat);
-	XMVECTOR det = XMMatrixDeterminant(frameCBuf.viewProj);
-	frameCBuf.invViewProj = XMMatrixInverse(&det, frameCBuf.viewProj);
+	frameCBuf.viewMat = XMMatrixTranspose(viewMat);
+	XMVECTOR det = XMMatrixDeterminant(frameCBuf.viewMat);
+	frameCBuf.invViewMat = XMMatrixInverse(&det, frameCBuf.viewMat);
 	frameCBuf.time = timeVals;
 
 	m_pD3DContext->Map(pPerFrameCBuf, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
