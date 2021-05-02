@@ -27,6 +27,6 @@ PS_Input VS_Main(VS_Input vertex)
 
 float4 PS_Main(PS_Input frag) : SV_TARGET
 {
-	return outputTex.Sample(outputSampler, frag.tex0);
+    return outputTex.Sample(outputSampler, frag.tex0);
 }
 
