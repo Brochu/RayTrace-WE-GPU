@@ -1,9 +1,24 @@
 
 #include "DxCSApp.h"
 
-float random()
+const double pi = 3.1415926535897932385;
+
+inline float random()
 {
     return static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+}
+
+void SetFloat4Cmpt(XMFLOAT4& vec, int pos, float val)
+{
+    if (pos == 0) vec.x = val;
+    else if (pos == 1) vec.y = val;
+    else if (pos == 2) vec.z = val;
+    else if (pos == 3) vec.w = val;
+}
+
+inline float deg2rad(float deg)
+{
+    return deg * pi / 180.0;
 }
 
 struct Vertex
@@ -14,111 +29,131 @@ struct Vertex
 
 struct PerFrame
 {
-    XMMATRIX viewMat;
-    XMMATRIX invViewMat;
-
     // To change some things based on time...?
     XMFLOAT4 time;
+    XMFLOAT4 perspectiveVals;
+    XMFLOAT4 currSamples;
+
+    XMMATRIX viewVals;
+
+    void ComputeViewVals(FXMVECTOR lookFrom, FXMVECTOR lookAt, FXMVECTOR vup,
+                        float vfov, float aspect_ratio, float aperture, float focus_dist)
+    {
+        float theta = deg2rad(vfov);
+        float h = tan(theta / 2);
+        float view_h = 2.0 * h;
+        float view_w = aspect_ratio * view_h;
+
+        XMVECTOR w = XMVector3Normalize(lookFrom - lookAt);
+        XMVECTOR u = XMVector3Normalize(XMVector3Cross(vup, w));
+        XMVECTOR v = XMVector3Cross(w, u);
+
+        XMVECTOR horizontal = focus_dist * view_w  * u;
+        XMVECTOR vertical = focus_dist * view_h  * v;
+        XMVECTOR lowerLeft = lookFrom - horizontal / 2 - vertical / 2 - focus_dist * w;
+
+        viewVals.r[0] = { lookFrom.m128_f32[0], lookFrom.m128_f32[1], lookFrom.m128_f32[2], 1.0 };
+        viewVals.r[1] = { horizontal.m128_f32[0], horizontal.m128_f32[1], horizontal.m128_f32[2], 0.0 };
+        viewVals.r[2] = { vertical.m128_f32[0], vertical.m128_f32[1], vertical.m128_f32[2], 0.0 };
+        viewVals.r[3] = { lowerLeft.m128_f32[0], lowerLeft.m128_f32[1], lowerLeft.m128_f32[2], 1.0 };
+
+        viewVals = XMMatrixTranspose(viewVals);
+    }
 };
 
 struct WorldDef
 {
     XMFLOAT4 sceneValues; // Values: Object Count, Max Ray Depth , Ray Per Pixels, unused... 
-    XMFLOAT4 spheres[64];
+    XMFLOAT4 spheres[512];
 
-    XMFLOAT4 matTypes[16];
-    XMFLOAT4 matValues[64];
+    XMFLOAT4 matTypes[128];
+    XMFLOAT4 matValues[512];
 
     static void random_world(WorldDef& w)
     {
-        w.matTypes[0] = { 0, 0, 2, 1 };
+        int count = 0;
+        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 0.0);
+        w.spheres[count] = { 0.0, -1000.0, 0.0, 1000.0 };
+        w.matValues[count] = { 0.5, 0.5, 0.5, 1.0 };
+        ++count;
 
-        XMFLOAT4 test;
-        w.spheres[0] = { 0, -1000, 0, 1000 };
-        w.matValues[0] = { 0.5, 0.5, 0.5, 1.0 };
+        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 2.0);
+        w.spheres[count] = { 0.0, 1.0, 0.0, 1.0 };
+        w.matValues[count] = { 0.0, 0.0, 0.0, 1.5 };
+        ++count;
 
-        int count = 1;
-        for (int a = -4; a < 4; ++a)
+        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 0.0);
+        w.spheres[count] = { -4.0, 1.0, 0.0, 1.0 };
+        w.matValues[count] = { 0.4, 0.2, 0.1, 1.0 };
+        ++count;
+
+        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 1.0);
+        w.spheres[count] = { 4.0, 1.0, 0.0, 1.0 };
+        w.matValues[count] = { 0.7, 0.6, 0.5, 0.0 };
+        ++count;
+
+        for (int a = -9; a < 9; ++a)
         {
-            for (int b = -3; b < 3; ++b)
+            for (int b = -9; b < 9; ++b)
             {
-                float rand_mat = random();
-                XMFLOAT3 center = { a + (float)0.9 * random(), (float)0.2, b + (float)0.9 * random() };
+                float mat_choice = random();
+                XMVECTOR center = { a + 0.9*random(), 0.2, b + 0.9*random() };
+                XMVECTOR ref = { 4.0, 0.2, 0.0 };
 
-                int type_idx = count / 4;
-                int type_sub_idx = count % 4;
-
-                if (rand_mat < 0.8)
+                if (XMVector3Length(center - ref).m128_f32[0] > 0.9)
                 {
-                    if (type_sub_idx == 0)
+                    if (mat_choice < 0.8)
                     {
-                        w.matTypes[type_idx].x = 0;
+                        // Diffuse
+                        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 0.0);
+                        w.spheres[count] = { center.m128_f32[0], center.m128_f32[1], center.m128_f32[2], 0.2 };
+                        w.matValues[count] = { random() * random(), random() * random(), random() * random(), 0.0 };
+                        ++count;
                     }
-                    else if (type_sub_idx == 1)
+                    else if (mat_choice < 0.95)
                     {
-                        w.matTypes[type_idx].y = 0;
+                        // Metal
+                        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 1.0);
+                        w.spheres[count] = { center.m128_f32[0], center.m128_f32[1], center.m128_f32[2], 0.2 };
+                        w.matValues[count] = { random()/2 + 1, random()/2 + 1, random()/2 + 1, 0.0 };
+                        ++count;
                     }
-                    else if (type_sub_idx == 2)
+                    else
                     {
-                        w.matTypes[type_idx].z = 0;
+                        // Glass
+                        SetFloat4Cmpt(w.matTypes[count / 4], count % 4, 2.0);
+                        w.spheres[count] = { center.m128_f32[0], center.m128_f32[1], center.m128_f32[2], 0.2 };
+                        w.matValues[count] = { 0.0, 0.0, 0.0, 1.5 };
+                        ++count;
                     }
-                    else if (type_sub_idx == 3)
-                    {
-                        w.matTypes[type_idx].w = 0;
-                    }
-                    w.spheres[count] = { center.x, center.y, center.z, 0.2 };
-                    w.matValues[count] = { random(), random(), random(), 1.0 };
                 }
-                else if (rand_mat < 0.95)
-                {
-                    if (type_sub_idx == 0)
-                    {
-                        w.matTypes[type_idx].x = 1;
-                    }
-                    else if (type_sub_idx == 1)
-                    {
-                        w.matTypes[type_idx].y = 1;
-                    }
-                    else if (type_sub_idx == 2)
-                    {
-                        w.matTypes[type_idx].z = 1;
-                    }
-                    else if (type_sub_idx == 3)
-                    {
-                        w.matTypes[type_idx].w = 1;
-                    }
-
-                    w.spheres[count] = { center.x, center.y, center.z, 0.2 };
-                    w.matValues[count] = { random() * (float)0.5, random() * (float)0.5, random() * (float)0.5, random() };
-                }
-                else
-                {
-                    if (type_sub_idx == 0)
-                    {
-                        w.matTypes[type_idx].x = 2;
-                    }
-                    else if (type_sub_idx == 1)
-                    {
-                        w.matTypes[type_idx].y = 2;
-                    }
-                    else if (type_sub_idx == 2)
-                    {
-                        w.matTypes[type_idx].z = 2;
-                    }
-                    else if (type_sub_idx == 3)
-                    {
-                        w.matTypes[type_idx].w = 2;
-                    }
-
-                    w.spheres[count] = { center.x, center.y, center.z, 0.2 };
-                    w.matValues[count] = { 0.0, 0.0, 0.0, 1.5 };
-                }
-
-                ++count;
             }
         }
 
-        w.sceneValues = { (float)count, 50, 50, -1 };
+        w.sceneValues = { (float)count, 50, 60, -1 };
+    }
+
+    static void test_world(WorldDef& w)
+    {
+        w.matTypes[0] = { 0, 0, 1, 2 };
+
+        // Ground
+        w.spheres[0] = { 0.0, -1000.5, -1.0, 1000.0 };
+        w.matValues[0] = { 0.5, 0.5, 0.5, 1.0 };
+
+        // Middle Lambert
+        w.spheres[1] = { 0.0, 0.0, -1.0, 0.5 };
+        w.matValues[1] = { 0.2, 0.4, 0.8, 1.0 };
+
+        // Right metal
+        w.spheres[2] = { 1.0, 0.0, -1.0, 0.5 };
+        w.matValues[2] = { 0.8, 0.4, 0.2, 0.0 };
+
+        // Left hollow glass
+        w.spheres[3] = { -1.0, 0.0, -1.0, 0.5 };
+        w.matValues[3] = { 0.5, 0.5, 0.5, 1.5 };
+
+        w.sceneValues = { 4, 50, 50, -1 };
     }
 };
 
@@ -138,15 +173,17 @@ DxCSApp::DxCSApp()
     pOutputSampler = NULL;
 
     pPerFrameCBuf = NULL;
-    camPos = XMVECTOR { 3.0, 2.0, 3.0, 1.0 };
-    camLookAt = XMVECTOR { 0.0, 0.0, 0.0, 1.0 };
-    upDir = XMVECTOR { 0.0, 1.0, 0.0, 0.0 };
-    perspectiveVals = { 80.0, 1, 0.001, 10000 }; // Values: FoV angle Y, aspect ratio, near Z, far Z
+    camPos = FXMVECTOR { 13.0, 2.0, 3.0 };
+    camLookAt = FXMVECTOR { 0.0, 0.0, 0.0 };
+    upDir = FXMVECTOR { 0.0, 1.0, 0.0 };
+    perspectiveVals = { 20.0, 16.0/9.0, 2.0, 1024.0 }; // Values: FoV angle Y, aspect ratio, aperture, img width
 
     t0 = Clock::now().time_since_epoch().count();
     tlast = Clock::now().time_since_epoch().count();
     tnow = Clock::now().time_since_epoch().count();
     timeVals = XMFLOAT4{ 0.0, 0.0, 0.0, 0.0 }; // Values: Time, DeltaTime, Time*2, DeltaTime*2
+
+    sampleCount = 0;
 
     pWorldCBuf = NULL;
 }
@@ -290,8 +327,8 @@ bool DxCSApp::LoadContent()
     outputTexDesc.ArraySize = 1;
     outputTexDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
     outputTexDesc.CPUAccessFlags = 0;
-    outputTexDesc.Height = 256;
-    outputTexDesc.Width = 256;
+    outputTexDesc.Height = 576;
+    outputTexDesc.Width = 1024;
     outputTexDesc.MipLevels = 1;
     outputTexDesc.MiscFlags = 0;
     outputTexDesc.SampleDesc.Count = 1;
@@ -435,21 +472,24 @@ void DxCSApp::Update()
 
     // Transformation matrices updates
     // TEMP START
-    //camPos = { 0.0, abs(sin((float)timeVals.x)), 0.0, 1.0 };
-    //camLookAt = { sin((float)timeVals.x), 0.0, -1.0, 1.0 };
-    //upDir = { sin((float)timeVals.x), 1.0, 0.0, 0.0 };
+    //camPos = { 13.0, 5*abs(sin((float)timeVals.x)), 3.0 };
+    //camLookAt = { sin((float)timeVals.x), 0.0, 0.0 };
+    //upDir = { sin((float)timeVals.x), 1.0, 0.0 };
+    //perspectiveVals = { 60 * abs(cos((float)timeVals.x)) + 20, 1, 2.0, 400.0 }; // Values: FoV angle Y, aspect ratio, aperture, img width
     // TEMP END
 
     D3D11_MAPPED_SUBRESOURCE mappedRes;
     ZeroMemory(&mappedRes, sizeof(D3D11_MAPPED_SUBRESOURCE));
 
     PerFrame frameCBuf;
-    XMMATRIX viewMat = XMMatrixLookAtRH(camPos, camLookAt, upDir);
-
-    frameCBuf.viewMat = XMMatrixTranspose(viewMat);
-    XMVECTOR det = XMMatrixDeterminant(frameCBuf.viewMat);
-    frameCBuf.invViewMat = XMMatrixInverse(&det, frameCBuf.viewMat);
     frameCBuf.time = timeVals;
+    frameCBuf.perspectiveVals = perspectiveVals;
+
+    FLOAT focus_dist = XMVector4Length(camPos - camLookAt).m128_f32[0];
+    frameCBuf.ComputeViewVals(camPos, camLookAt, upDir, perspectiveVals.x, perspectiveVals.y, perspectiveVals.z, focus_dist);
+
+    sampleCount++;
+    frameCBuf.currSamples = { sampleCount, sampleCount, sampleCount, sampleCount };
 
     m_pD3DContext->Map(pPerFrameCBuf, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
     memcpy(mappedRes.pData, &frameCBuf, sizeof(frameCBuf));

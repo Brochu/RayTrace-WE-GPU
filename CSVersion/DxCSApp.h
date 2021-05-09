@@ -16,43 +16,45 @@ public:
     DxCSApp();
     virtual ~DxCSApp();
 
-	// Start Overrides
+    // Start Overrides
     virtual bool LoadContent();
     virtual void UnloadContent();
 
     virtual void Update();
     virtual void Render();
-	// End Overrides
+    // End Overrides
 
 protected:
-	std::ofstream debugLog;
+    std::ofstream debugLog;
 
-	LPCWSTR DisplayShaderName = L"ShaderDisplay.hlsl";
-	LPCWSTR ComputeShaderName = L"ShaderCompute.hlsl";
+    LPCWSTR DisplayShaderName = L"ShaderDisplay.hlsl";
+    LPCWSTR ComputeShaderName = L"ShaderCompute.hlsl";
 
     ID3D11VertexShader* pVShader;
     ID3D11PixelShader* pPShader;
-	ID3D11ComputeShader* pCShader;
+    ID3D11ComputeShader* pCShader;
 
     ID3D11InputLayout* pInputLayout;
     ID3D11Buffer* pVertexBuffer;
 
-	ID3D11Texture2D* pOutputTex;
-	ID3D11ShaderResourceView* pOutputSRV;
-	ID3D11UnorderedAccessView* pOutputUAV;
+    ID3D11Texture2D* pOutputTex;
+    ID3D11ShaderResourceView* pOutputSRV;
+    ID3D11UnorderedAccessView* pOutputUAV;
 
     ID3D11SamplerState* pOutputSampler;
 
     ID3D11Buffer* pPerFrameCBuf;
-	XMVECTOR camPos;
-	XMVECTOR camLookAt;
-	XMVECTOR upDir;
-	XMFLOAT4 perspectiveVals; // Packed transformation matrix values
+    XMVECTOR camPos;
+    XMVECTOR camLookAt;
+    XMVECTOR upDir;
+    XMFLOAT4 perspectiveVals; // Packed transformation matrix values
 
-	long long t0;
-	long long tlast;
-	long long tnow;
-	XMFLOAT4 timeVals; // Packed time values
+    long long t0;
+    long long tlast;
+    long long tnow;
+    XMFLOAT4 timeVals; // Packed time values
+
+    FLOAT sampleCount;
 
     ID3D11Buffer* pWorldCBuf;
 };

@@ -35,6 +35,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     if (!app.Initialize(g_hWnd, g_hInst))
         return -1;
 
+    app.Update();
+    app.Render();
     // Main message loop
     MSG msg = { 0 };
     while (msg.message != WM_QUIT)
@@ -46,8 +48,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
         }
 
         // Update and render
-        app.Update();
-        app.Render();
+        //app.Update();
+        //app.Render();
     }
 
     // Terminate app
@@ -82,7 +84,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 bool CreateMainWnd(int nCmdShow)
 {
     // Calculate main window size
-    RECT rc = { 0, 0, 256, 256 };
+    RECT rc = { 0, 0, 1024, 576 };
     ::AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
     // Create the main window
@@ -120,14 +122,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         ::PostQuitMessage(0);
         break;
 
-	case WM_KEYUP:
-		switch (wParam)
-		{
-			case VK_ESCAPE:
-				::PostQuitMessage(0);
-				break;
-		}
-		break;
+    case WM_KEYUP:
+        switch (wParam)
+        {
+            case VK_ESCAPE:
+                ::PostQuitMessage(0);
+                break;
+        }
+        break;
 
     default:
         return ::DefWindowProc(hWnd, message, wParam, lParam);

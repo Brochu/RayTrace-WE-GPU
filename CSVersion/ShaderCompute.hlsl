@@ -2,20 +2,68 @@
 
 cbuffer PerFrame : register(b0)
 {
-    float4x4 viewMat;
-    float4x4 invViewMat;
-
     float4 time;
+    float4 perspectiveVals;
+    float4 currSamples;
+
+    float4x4 viewVals;
 }
 
 cbuffer WorldDef : register(b1)
 {
     float4 sceneValues; // Values: Object Count, Max Ray Depth , Ray Per Pixels, unused... 
-    float4 spheres[64];
+    float4 spheres[512];
 
-    float4 matTypes[16];
-    float4 matValues[64];
+    float4 matTypes[128];
+    float4 matValues[512];
 };
+
+////////////////////////////////////////
+// Random funcs
+uint baseHash(uint2 p)
+{
+    p = 1103515245U*((p >> 1U)^(p.yx));
+    uint h32 = 1103515245U*((p.x)^(p.y>>3U));
+    return h32^(h32 >> 16);
+}
+
+float hash1(inout float seed)
+{
+    uint n = baseHash(asuint(float2(seed += 0.1,seed += 0.1)));
+    return float(n) / float(0xffffffffU);
+}
+
+float2 hash2(inout float seed)
+{
+    uint n = baseHash(asuint(float2(seed += 0.1,seed += 0.1)));
+    uint2 rz = uint2(n, n * 48271U);
+    return float2(rz.xy & uint2(0x7fffffffU, 0x7fffffffU)) / float(0x7fffffff);
+}
+
+float3 hash3(inout float seed)
+{
+    uint n = baseHash(asuint(float2(seed += 0.1,seed += 0.1)));
+    uint3 rz = uint3(n, n * 16807U, n * 48271U);
+    return float3(rz & uint3(0x7fffffffU, 0x7fffffffU, 0x7fffffffU)) / float(0x7fffffff);
+}
+
+float2 random_in_unit_disk(inout float seed)
+{
+    float2 hash = hash2(seed) * float2(1.0, 6.28318530718);
+    float phi = hash.y;
+    float r = sqrt(hash.x);
+
+    return r * float2(sin(phi), cos(phi));
+}
+
+float3 random_in_unit_sphere(inout float seed)
+{
+    float3 hash = hash3(seed) * float3(2.0, 6.28318530718, 1.0) - float3(1.0, 0.0, 0.0);
+    float phi = hash.y;
+    float r = pow(hash.z, 1.0 / 3.0);
+
+    return r * float3(sqrt(1.0 - hash.x * hash.x) * float2(sin(phi), cos(phi)), hash.x);
+}
 
 ////////////////////////////////////////
 // Vector
@@ -30,13 +78,13 @@ float3 reflect(float3 v, float3 n)
     return v - 2 * dot(v, n) * n;
 }
 
-float3 refract(float3 v, float3 n, float ratio)
+float3 refract(float3 uv, float3 n, float ratio)
 {
-    float cos_theta = min(dot(-v, n), 1.0);
-    float3 r_out_perp = ratio * (v + cos_theta * n);
-    float3 r_out_para = -sqrt(abs(1.0 - length(r_out_perp) * length(r_out_perp))) * n;
+    float cos_theta = min(dot(-uv, n), 1.0);
+    float3 r_out_perp =  ratio * (uv + cos_theta*n);
+    float3 r_out_parallel = -sqrt(abs(1.0 - length(r_out_perp) * length(r_out_perp))) * n;
 
-    return r_out_perp + r_out_para;
+    return r_out_perp + r_out_parallel;
 }
 
 float reflectance(float cos, float ref_idx)
@@ -46,6 +94,12 @@ float reflectance(float cos, float ref_idx)
     r0 = r0 * r0;
 
     return r0 + (1 - r0)*pow((1 - cos), 5);
+}
+
+float3 toGamma(float3 i)
+{
+    float ratio = 1.0 / 2.2;
+    return pow(i, float3(ratio, ratio, ratio));
 }
 
 ////////////////////////////////////////
@@ -61,13 +115,13 @@ float3 ray_at(Ray r, float t)
     return r.orig + t * r.dir;
 }
 
-Ray get_ray(float s, float t)
+Ray get_ray(float s, float t, inout float p)
 {
-    // Build the ray and move it based on view and projection
-    Ray r;
-    r.orig = mul(float4(0, 0, 0, 1), invViewMat).xyz;
-    float4 at = mul(float4((s * 2) - 1, (t * 2) - 1, -1.0, 1), invViewMat);
-    r.dir = normalize(at.xyz - r.orig);
+    Ray r =
+    {
+        viewVals[0].xyz,
+        viewVals[3].xyz + s*viewVals[1].xyz + t*viewVals[2].xyz - viewVals[0].xyz
+    };
 
     return r;
 }
@@ -86,45 +140,13 @@ struct Hit
     int mat_vals_idx;
 };
 
-void set_face_normal(Ray r, float3 outward_normal, int sphere_idx, inout Hit h)
+void set_face_normal(Ray r, float3 outward_normal, uint sphere_idx, inout Hit h)
 {
     h.front_face = dot(r.dir, outward_normal) < 0;
     h.normal = (h.front_face) ? outward_normal : -outward_normal;
 
     h.mat_type = matTypes[sphere_idx / 4][sphere_idx % 4];
     h.mat_vals_idx = sphere_idx;
-}
-////////////////////////////////////////
-
-////////////////////////////////////////
-// Random funcs
-float rand(inout float2 p)
-{
-    float r = frac(cos(dot(p, float2(23.14069263277926,2.665144142690225)))*12345.6789);
-    p = float2(r, r*r);
-
-    return r;
-}
-
-float3 random_in_unit_sphere(float2 randState)
-{
-    float phi = 2.0 * rand(randState) * (float) PI;
-    float cosTheta = 2.0 * rand(randState) - 1.0;
-    float u = rand(randState);
-
-    float theta = acos(cosTheta);
-    float r = pow(u, 1.0 / 3.0);
-
-    float x = r * sin(theta) * cos(phi);
-    float y = r * sin(theta) * sin(phi);
-    float z = r * cos(theta);
-
-    return float3(x, y, z);
-}
-
-float3 random_unit_vector(float2 randState)
-{
-    return normalize(random_in_unit_sphere(randState));
 }
 ////////////////////////////////////////
 
@@ -182,101 +204,86 @@ bool hit_world(Ray r, float t_min, float t_max, out Hit h)
     return hit_anything;
 }
 
-bool lambert(Ray r, Hit h, float2 randState, out float4 color, out Ray scatter)
+bool scatter(Ray rIn, Hit rec, inout float p, out float3 atten, out Ray scattered)
 {
-    float3 scatter_dir = h.normal + random_unit_vector(randState);
-    if (near_zero(scatter_dir))
+    if (rec.mat_type == 0) // DIFFUSE
     {
-        scatter_dir = h.normal;
+        float3 target = rec.p + rec.normal + random_in_unit_sphere(p);
+        Ray r = { rec.p, normalize(target - rec.p) };
+        scattered = r;
+
+        atten = matValues[rec.mat_vals_idx].xyz;
+        return true;
     }
 
-    Ray s = { h.p, scatter_dir };
-    scatter = s;
-    color = float4(matValues[h.mat_vals_idx].xyz, 1.0);
+    if (rec.mat_type == 1) // METAL
+    {
+        float3 refl = reflect(rIn.dir, rec.normal);
+        Ray r = { rec.p, normalize(refl + matValues[rec.mat_vals_idx].w * random_in_unit_sphere(p)) };
+        scattered = r;
 
-    return true;
-}
+        atten = matValues[rec.mat_vals_idx].xyz;
+        return true;
+    }
 
-bool metal(Ray r, Hit h, float2 randState, out float4 color, out Ray scatter)
-{
-    float3 reflected = reflect(normalize(r.dir), h.normal);
-    Ray s = { h.p, reflected + matValues[h.mat_vals_idx].w*random_in_unit_sphere(randState) };
-    scatter = s;
-    color = float4(matValues[h.mat_vals_idx].xyz, 1.0);
+    if (rec.mat_type == 2) // DIELECTRIC
+    {
+        atten = float3(1, 1, 1);
+        float refrac_ratio = rec.front_face ? (1.0 / matValues[rec.mat_vals_idx].w) : matValues[rec.mat_vals_idx].w;
 
-    return (dot(scatter.dir, h.normal) > 0);
-}
+        float3 unit_dir = normalize(rIn.dir);
+        float cosine = min(dot(-unit_dir, rec.normal), 1.0);
+        float sine = sqrt(1.0 - cosine * cosine);
 
-bool dielectric(Ray r, Hit h, float2 randState, out float4 color, out Ray scatter)
-{
-    color = float4(1, 1, 1, 1);
-    float ir = matValues[h.mat_vals_idx].w;
-    float refrac_ratio = h.front_face ? (1.0 / ir) : ir;
+        bool cant = refrac_ratio * sine > 1.0;
+        float3 direction;
 
-    float3 unit_dir = normalize(r.dir);
+        if (cant || reflectance(cosine, refrac_ratio) > hash1(p))
+            direction = reflect(unit_dir, rec.normal);
+        else
+            direction = refract(unit_dir, rec.normal, refrac_ratio);
 
-    float cos_theta = min(dot(-unit_dir, h.normal), 1.0);
-    float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
-    bool cant_refract = refrac_ratio * sin_theta > 1.0;
-    float3 dir;
+        Ray r = { rec.p, direction };
+        scattered = r;
+        return true;
+    }
 
-    if (cant_refract)
-        dir = reflect(unit_dir, h.normal);
-    else
-        dir = refract(unit_dir, h.normal, refrac_ratio);
-
-    Ray s = { h.p, dir };
-    scatter = s;
-
-    return true;
+    return false;
 }
 ////////////////////////////////////////
 
-float4 sample_color(Ray r, float2 randState)
+float3 sample_color(Ray r, inout float p)
 {
     Ray cur_ray = r;
-    float4 cur_atten = float4(1.0, 1.0, 1.0, 1.0);
+    Hit h;
+    float3 col = float3(1,1,1);
     for (int i = 0; i < sceneValues.y; ++i)
     {
-        Hit h;
         if (hit_world(cur_ray, 0.001, 1.#INF, h))
         {
             Ray scattered;
-            float4 color;
-            bool success = false;
+            float3 attenuation;
 
-            if (h.mat_type == 0)
+            if (scatter(cur_ray, h, p, attenuation, scattered))
             {
-                success = lambert(cur_ray, h, randState, color, scattered);
-            }
-            else if (h.mat_type == 1)
-            {
-                success = metal(cur_ray, h, randState, color, scattered);
-            }
-            else if (h.mat_type == 2)
-            {
-                success = dielectric(cur_ray, h, randState, color, scattered);
-            }
-
-            if (success)
-            {
+                col *= attenuation;
                 cur_ray = scattered;
-                cur_atten.x *= color.x;
-                cur_atten.y *= color.y;
-                cur_atten.z *= color.z;
+            }
+            else
+            {
+                return float3(0, 0, 0);
             }
         }
         else
         {
             float3 unit_dir = normalize(cur_ray.dir);
             float t = 0.5 * (unit_dir.y + 1);
-            float4 color = (1.0-t)*float4(1.0, 1.0, 1.0, 1.0) + t*float4(0.5, 0.7, 1.0, 1.0);
+            float3 sky = (1.0-t)*float3(1.0, 1.0, 1.0) + t*float3(0.5, 0.7, 1.00);
 
-            return cur_atten * color;
+            return col * sky;
         }
     }
-
-    return float4(0, 0, 0, 1);
+    return float3(0, 0, 0);
 }
 
 RWTexture2D<float4> OutputColors : register(t0);
@@ -284,29 +291,25 @@ RWTexture2D<float4> OutputColors : register(t0);
 [numthreads(32, 32, 1)]
 void CSMain(uint3 DTid : SV_DispatchThreadID)
 {
-    float2 randState = DTid.xy; // *frac(time.z);
+    float2 img_dim = float2(perspectiveVals.w, perspectiveVals.w / perspectiveVals.y);
+    float p = float(baseHash(asint(DTid.xy)))/float(0xffffffffU);
+    //p += time.x;
 
-    float u;
-    float v;
-    Ray r;
+    //float rr = rand(p);
+    //float rg = rand(p);
+    //float rb = rand(p);
+    //OutputColors[DTid.xy] = float4(rr, rg, rb, 1);
 
-    float ratio = 1.0 / sceneValues.z;
-    float4 color;
+    float3 accColor = float3(0,0,0);
     for (int i = 0; i < sceneValues.z; ++i)
     {
-        u = (DTid.x + rand(randState)) / (float)256;
-        v = (DTid.y + rand(randState)) / (float)256;
-        r = get_ray(u, v);
+        float u = (DTid.x + hash2(p).x*1.1) / (img_dim.x-1);
+        float v = (DTid.y + hash2(p).y*1.1) / (img_dim.y-1);
 
-        color += ratio * sample_color(r, randState);
+        accColor += sample_color(get_ray(u, v, p), p);
     }
-    OutputColors[DTid.xy] = color;
 
-
-    //float rr = rand(randState);
-    //float rg = rand(randState);
-    //float rb = rand(randState);
-    //OutputColors[DTid.xy] = float4(rr, rg, rb, 1);
-    //OutputColors[DTid.xy] = float4(u * abs(sin(time.x+1)), 0.2, v * abs(cos(time.x)), 1);
+    accColor /= (sceneValues.z);
+    accColor = toGamma(accColor);
+    OutputColors[DTid.xy] = float4(accColor, 1.0);
 }
-
